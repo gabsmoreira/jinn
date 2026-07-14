@@ -16,6 +16,16 @@ describe("claude-settings", () => {
     expect(s.appendSystemPrompt).toBe("SYS");
   });
 
+  it("pre-accepts the bypass-permissions disclaimer so the interactive PTY never blocks", () => {
+    // The engine launches `claude --dangerously-skip-permissions`; Claude Code >=2.1
+    // gates that behind a one-time interactive "Bypass Permissions mode" disclaimer
+    // whose acceptance flag is the `skipDangerousModePermissionPrompt` setting. The
+    // per-session settings file is passed via --settings, so setting it here answers
+    // the disclaimer up front (seedTrust's hasCompletedOnboarding no longer covers it).
+    const s = buildSessionSettings({ sessionId: "jinn-abc", relayScript: "/h/relay.mjs" });
+    expect(s.skipDangerousModePermissionPrompt).toBe(true);
+  });
+
   it("shell-quotes hook relay paths and session ids", () => {
     const s = buildSessionSettings({ sessionId: "jinn ' tricky", relayScript: "/tmp/path with spaces/relay's.mjs" });
     const stop = s.hooks.Stop[0].hooks[0];
