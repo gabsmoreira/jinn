@@ -18,6 +18,8 @@ export interface ClaudeSettings {
   hooks: Record<"SessionStart" | "Stop" | "StopFailure" | "PreToolUse" | "PostToolUse", HookMatcher[]>;
   statusLine?: HookCommand;
   appendSystemPrompt?: string;
+  /** Pre-accept the "Bypass Permissions mode" disclaimer (see buildSessionSettings). */
+  skipDangerousModePermissionPrompt?: boolean;
 }
 
 function shellQuote(value: string): string {
@@ -60,6 +62,14 @@ export function buildSessionSettings(opts: SessionSettingsOpts): ClaudeSettings 
       PreToolUse: [cmd()],
       PostToolUse: [cmd()],
     },
+    // The engine launches `claude --dangerously-skip-permissions`; Claude Code >=2.1
+    // gates that behind a one-time interactive "Bypass Permissions mode" disclaimer
+    // that the daemon can't answer, so every work turn hangs before reaching the API.
+    // This settings file is passed via --settings, and `skipDangerousModePermissionPrompt`
+    // is the flag Claude persists when the disclaimer is accepted — so setting it here
+    // dismisses the dialog up front. seedTrust's hasCompletedOnboarding no longer gates
+    // this dialog in Claude Code >=2.1 (see issue #66).
+    skipDangerousModePermissionPrompt: true,
     ...(opts.statusLineDir ? { statusLine: { type: "command", command: buildStatusLineRecorderCommand(opts.sessionId, opts.statusLineDir) } } : {}),
     ...(opts.appendSystemPrompt ? { appendSystemPrompt: opts.appendSystemPrompt } : {}),
   };
