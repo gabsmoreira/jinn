@@ -255,12 +255,92 @@ function isVisibleSource(s: Session): boolean {
   return s.source === "web" || s.source === "cron" || s.source === "whatsapp" || s.source === "discord" || !s.source
 }
 
-function getSessionActivity(session: Session): string {
+function getSessionActivity(session: Pick<Session, "lastActivity" | "createdAt">): string {
   return session.lastActivity || session.createdAt || ""
 }
 
-function sortSessionsByActivity(sessions: Session[]): Session[] {
+function sortSessionsByActivity<T extends Pick<Session, "lastActivity" | "createdAt">>(sessions: T[]): T[] {
   return [...sessions].sort((a, b) => getSessionActivity(b).localeCompare(getSessionActivity(a)))
+}
+
+/** One sidebar entry per agent (see buildAgentGroups). */
+export interface AgentGroup<T = Session> {
+  /** Agent slug; the portal slug for the direct/COO group. */
+  employeeName: string
+  /** Server group key: the employee slug, or DIRECT_GROUP for direct sessions. */
+  groupKey: string
+  isDirect: boolean
+  /** This group's loaded sessions, newest-first. */
+  sessions: T[]
+  /** Activity timestamp of the newest session — the group's sort key. */
+  sortKey: string
+  /** Authoritative server total (may exceed loaded `sessions.length`). */
+  total: number
+  pinKey: string
+  pinned: boolean
+}
+
+type GroupableSession = {
+  id: string
+  source?: string
+  sourceRef?: string
+  employee?: string | null
+  lastActivity?: string
+  createdAt?: string
+}
+
+/**
+ * Collapse loaded sessions into one group per agent for the "All" sidebar view —
+ * so an agent with several delegated tasks shows a single expandable entry instead
+ * of one row per task. Cron sessions are excluded (their own section); employee-less
+ * and portal-slug sessions fold into a single direct group. Groups are ordered
+ * pinned-first then by most-recent activity; each group's sessions are newest-first.
+ */
+export function buildAgentGroups<T extends GroupableSession>(
+  sessions: T[],
+  opts: { portalSlug: string; counts: Record<string, number>; pinnedKeys: Set<string> },
+): AgentGroup<T>[] {
+  const { portalSlug, counts, pinnedKeys } = opts
+  const byKey = new Map<string, { employeeName: string; isDirect: boolean; sessions: T[] }>()
+  for (const s of sessions) {
+    if (isCronSession(s)) continue
+    const direct = isDirectSession({ source: s.source, sourceRef: s.sourceRef, employee: s.employee ?? undefined }, portalSlug)
+    const groupKey = direct ? DIRECT_GROUP : s.employee!
+    const employeeName = direct ? portalSlug : s.employee!
+    let g = byKey.get(groupKey)
+    if (!g) {
+      g = { employeeName, isDirect: direct, sessions: [] }
+      byKey.set(groupKey, g)
+    }
+    g.sessions.push(s)
+  }
+  const groups: AgentGroup<T>[] = []
+  for (const [groupKey, g] of byKey) {
+    const sorted = sortSessionsByActivity(g.sessions)
+    const pinKey = `emp:${g.employeeName}`
+    groups.push({
+      employeeName: g.employeeName,
+      groupKey,
+      isDirect: g.isDirect,
+      sessions: sorted,
+      sortKey: getSessionActivity(sorted[0]),
+      total: counts[groupKey] ?? sorted.length,
+      pinKey,
+      pinned: pinnedKeys.has(pinKey),
+    })
+  }
+  // Pinned first; within each partition, most-recently-active agent on top.
+  groups.sort((a, b) => (a.pinned !== b.pinned ? (a.pinned ? -1 : 1) : b.sortKey.localeCompare(a.sortKey)))
+  return groups
+}
+
+/** Name of the group that holds the currently-open chat — the one to auto-expand. */
+export function activeGroupName<T extends { id: string }>(
+  groups: AgentGroup<T>[],
+  selectedId: string | null,
+): string | undefined {
+  if (!selectedId) return undefined
+  return groups.find((g) => g.sessions.some((s) => s.id === selectedId))?.employeeName
 }
 
 /** Idle-but-busy: the session's turn ended but subagents/background tasks are
@@ -1143,10 +1223,9 @@ export function ChatSidebar({
     olderSummary,
     olderFocusedRows,
     hiddenAutomated,
-    olderPinned,
-    olderUnpinned,
     pinnedFlat,
     unpinnedFlat,
+    agentGroups,
     sortedCron,
     cronSessions,
     cronTotal,
@@ -1175,10 +1254,9 @@ export function ChatSidebar({
         olderSummary: { chats: 0, employees: 0 },
         olderFocusedRows: [] as FlatRow[],
         hiddenAutomated: 0,
-        olderPinned: [] as FlatItem[],
-        olderUnpinned: [] as FlatItem[],
         pinnedFlat: [] as FlatItem[],
         unpinnedFlat: [] as FlatItem[],
+        agentGroups: [] as AgentGroup<Session>[],
         sortedCron: [] as Session[],
         cronSessions: [] as Session[],
         cronTotal: 0,
@@ -1194,8 +1272,6 @@ export function ChatSidebar({
     const focused = focusMode === "focused"
     const now = new Date()
     const cronSessions: Session[] = []
-    const directSessions: Session[] = []
-    const employeeSessionMap = new Map<string, Session[]>()
     const todayRows: FlatRow[] = []
     const yesterdayRows: FlatRow[] = []
     // Focused-mode Older = older user-initiated chats, as flat rows (computed
@@ -1211,13 +1287,9 @@ export function ChatSidebar({
         cronSessions.push(s)
         continue
       }
-      const isDirect = isDirectSession(s, portalSlug)
-      const groupKey = isDirect ? DIRECT_GROUP : s.employee!
-      if (isDirect) directSessions.push(s)
-      else {
-        if (!employeeSessionMap.has(groupKey)) employeeSessionMap.set(groupKey, [])
-        employeeSessionMap.get(groupKey)!.push(s)
-      }
+      // groupKey drives the recent-per-group tally below (Older math in focused mode);
+      // the per-agent groups themselves come from buildAgentGroups(displayed).
+      const groupKey = isDirectSession(s, portalSlug) ? DIRECT_GROUP : s.employee!
       // Focused filter gates only the recency buckets, not the employee groups.
       if (focused && !isFocusedSession(s)) {
         hiddenAutomated += 1
@@ -1239,57 +1311,34 @@ export function ChatSidebar({
     yesterdayRows.sort((a, b) => getSessionActivity(b.session).localeCompare(getSessionActivity(a.session)))
     olderFocusedRows.sort((a, b) => getSessionActivity(b.session).localeCompare(getSessionActivity(a.session)))
 
-    // Per-employee groups (full history) — used by the Older drawer + keyboard nav.
-    const flatItems: FlatItem[] = []
-    for (const [empName, empSessions] of employeeSessionMap) {
-      const sorted = sortSessionsByActivity(empSessions)
-      flatItems.push({
-        type: "employee",
-        employeeName: empName,
-        employeeData: employeeData.get(empName),
-        sessions: sorted,
-        sortKey: getSessionActivity(sorted[0]),
-        pinKey: `emp:${empName}`,
-        groupKey: empName,
-        total: counts[empName] ?? sorted.length,
-      })
-    }
-    if (directSessions.length > 0) {
-      const sorted = sortSessionsByActivity(directSessions)
-      flatItems.push({
-        type: "employee",
-        employeeName: portalSlug,
-        employeeData: {
-          name: portalSlug,
-          displayName: portalName,
-          emoji: "\u{1F4AC}",
-          department: "direct",
-          role: "",
-          rank: "manager",
-          engine: "",
-          model: "",
-          persona: "",
-        } as Employee,
-        sessions: sorted,
-        sortKey: getSessionActivity(sorted[0]),
-        pinKey: `emp:${portalSlug}`,
-        groupKey: DIRECT_GROUP,
-        total: counts[DIRECT_GROUP] ?? sorted.length,
-      })
-    }
+    // Per-agent groups (full history) — one entry per agent, ordered pinned-first
+    // then most-recent activity. Drives the All-mode list, the Older drawer, and
+    // keyboard nav. buildAgentGroups is unit-tested (chat-sidebar-helpers.test.ts).
+    const directEmployeeData = {
+      name: portalSlug,
+      displayName: portalName,
+      emoji: "\u{1F4AC}",
+      department: "direct",
+      role: "",
+      rank: "manager",
+      engine: "",
+      model: "",
+      persona: "",
+    } as Employee
+    const agentGroups = buildAgentGroups(displayed, { portalSlug, counts, pinnedKeys: pinnedSessions })
+    const toFlatItem = (g: AgentGroup<Session>): FlatItem => ({
+      type: "employee",
+      employeeName: g.employeeName,
+      employeeData: g.isDirect ? directEmployeeData : employeeData.get(g.employeeName),
+      sessions: g.sessions,
+      sortKey: g.sortKey,
+      pinKey: g.pinKey,
+      groupKey: g.groupKey,
+      total: g.total,
+    })
+    const pinnedFlat = agentGroups.filter((g) => g.pinned).map(toFlatItem)
+    const unpinnedFlat = agentGroups.filter((g) => !g.pinned).map(toFlatItem)
 
-    const pinnedFlat = flatItems
-      .filter((item) => pinnedSessions.has(item.pinKey))
-      .sort((a, b) => b.sortKey.localeCompare(a.sortKey))
-    const unpinnedFlat = flatItems
-      .filter((item) => !pinnedSessions.has(item.pinKey))
-      .sort((a, b) => b.sortKey.localeCompare(a.sortKey))
-
-    // Older drawer = only groups that actually have sessions beyond yesterday.
-    const hasOlder = (item: FlatItem) =>
-      (item.total ?? item.sessions!.length) - (recentByGroup[item.groupKey ?? item.employeeName!] ?? 0) > 0
-    const olderPinned = pinnedFlat.filter(hasOlder)
-    const olderUnpinned = unpinnedFlat.filter(hasOlder)
 
     // Older summary. Focused: count the loaded older user-initiated chats +
     // their distinct employees (direct/COO excluded from the employee tally).
@@ -1321,10 +1370,9 @@ export function ChatSidebar({
       olderSummary,
       olderFocusedRows,
       hiddenAutomated,
-      olderPinned,
-      olderUnpinned,
       pinnedFlat,
       unpinnedFlat,
+      agentGroups,
       sortedCron,
       cronSessions,
       cronTotal,
@@ -1332,6 +1380,16 @@ export function ChatSidebar({
   }, [sessions, search, searchResults, employeeData, portalSlug, portalName, pinnedSessions, counts, focusMode])
 
   const cronCollapsed = collapsed.has("cron")
+
+  // Auto-expand the agent group that owns the open chat (All view) so the active
+  // conversation is always visible. Runtime-only overlay — only manual toggles are
+  // persisted, so a reload reflects the user's own expand/collapse choices.
+  useEffect(() => {
+    if (focusMode === "focused") return
+    const name = activeGroupName(agentGroups, selectedId)
+    if (!name) return
+    setExpanded((prev) => (prev[name] ? prev : { ...prev, [name]: true }))
+  }, [selectedId, agentGroups, focusMode])
 
   // Contactable employees: the full org roster MERGED with the employees that
   // already have sessions, then sliced down to the roster-only tail (employees
@@ -1366,18 +1424,19 @@ export function ChatSidebar({
       return { sessionIds: ids, employeeNames: [] as string[], employeeSessionMap: {} as Record<string, string[]> }
     }
 
-    for (const r of todayRows) push(r.session.id)
-    for (const r of yesterdayRows) push(r.session.id)
-    if (olderExpanded) {
-      if (focusMode === "focused") {
+    if (focusMode !== "focused") {
+      // All view: agent groups in visual order — an expanded group reaches all its
+      // tasks; a collapsed one reaches only its latest.
+      for (const item of [...pinnedFlat, ...unpinnedFlat]) {
+        const sessionIds = item.sessions!.map((s) => s.id)
+        if (expanded[item.employeeName!]) sessionIds.forEach(push)
+        else if (sessionIds.length) push(sessionIds[0])
+      }
+    } else {
+      for (const r of todayRows) push(r.session.id)
+      for (const r of yesterdayRows) push(r.session.id)
+      if (olderExpanded) {
         for (const r of olderFocusedRows) push(r.session.id)
-      } else {
-        for (const item of [...olderPinned, ...olderUnpinned]) {
-          const sessionIds = item.sessions!.map((s) => s.id)
-          // Collapsed employee row reaches only its latest session; expanded reaches all.
-          if (expanded[item.employeeName!]) sessionIds.forEach(push)
-          else if (sessionIds.length) push(sessionIds[0])
-        }
       }
     }
     for (const s of sortedCron) push(s.id)
@@ -1391,7 +1450,7 @@ export function ChatSidebar({
       empMap[name] = item.sessions!.map((s) => s.id)
     }
     return { sessionIds: ids, employeeNames: empNames, employeeSessionMap: empMap }
-  }, [searching, searchRows, todayRows, yesterdayRows, olderExpanded, focusMode, olderFocusedRows, olderPinned, olderUnpinned, expanded, sortedCron, pinnedFlat, unpinnedFlat])
+  }, [searching, searchRows, todayRows, yesterdayRows, olderExpanded, focusMode, olderFocusedRows, expanded, sortedCron, pinnedFlat, unpinnedFlat])
 
   useEffect(() => {
     const key = allFlatIds.sessionIds.join(',')
@@ -1489,25 +1548,28 @@ export function ChatSidebar({
       for (const row of searchRows) list.push({ kind: "flat", row })
       return list
     }
-    if (todayRows.length > 0) {
-      list.push({ kind: "section", id: "today", label: "Today", count: todayRows.length })
-      for (const row of todayRows) list.push({ kind: "flat", row })
-    }
-    if (yesterdayRows.length > 0) {
-      list.push({ kind: "section", id: "yesterday", label: "Yesterday", count: yesterdayRows.length })
-      for (const row of yesterdayRows) list.push({ kind: "flat", row })
-    }
-    if (olderSummary.chats > 0) {
-      if (!olderExpanded) {
-        list.push({ kind: "older-line" })
-      } else if (focusMode === "focused") {
-        // Focused Older = flat older user-initiated chats (no per-employee drawer).
-        list.push({ kind: "older-header" })
-        for (const row of olderFocusedRows) list.push({ kind: "flat", row })
-      } else {
-        list.push({ kind: "older-header" })
-        for (const item of olderPinned) list.push({ kind: "employee", item })
-        for (const item of olderUnpinned) list.push({ kind: "employee", item })
+    if (focusMode !== "focused") {
+      // All view: one entry per agent — collapses an agent's delegated tasks into a
+      // single expandable row (ordered pinned-first, then most-recent activity).
+      for (const item of pinnedFlat) list.push({ kind: "employee", item })
+      for (const item of unpinnedFlat) list.push({ kind: "employee", item })
+    } else {
+      if (todayRows.length > 0) {
+        list.push({ kind: "section", id: "today", label: "Today", count: todayRows.length })
+        for (const row of todayRows) list.push({ kind: "flat", row })
+      }
+      if (yesterdayRows.length > 0) {
+        list.push({ kind: "section", id: "yesterday", label: "Yesterday", count: yesterdayRows.length })
+        for (const row of yesterdayRows) list.push({ kind: "flat", row })
+      }
+      if (olderSummary.chats > 0) {
+        if (!olderExpanded) {
+          list.push({ kind: "older-line" })
+        } else {
+          // Focused Older = flat older user-initiated chats (no per-employee drawer).
+          list.push({ kind: "older-header" })
+          for (const row of olderFocusedRows) list.push({ kind: "flat", row })
+        }
       }
     }
     if (cronSessions.length > 0) {
@@ -1518,7 +1580,7 @@ export function ChatSidebar({
       }
     }
     return list
-  }, [searching, searchRows, todayRows, yesterdayRows, olderSummary.chats, olderExpanded, focusMode, olderFocusedRows, olderPinned, olderUnpinned, cronSessions.length, cronCollapsed, sortedCron, cronTotal])
+  }, [searching, searchRows, todayRows, yesterdayRows, olderSummary.chats, olderExpanded, focusMode, olderFocusedRows, pinnedFlat, unpinnedFlat, cronSessions.length, cronCollapsed, sortedCron, cronTotal])
 
   const VIRTUALIZE_THRESHOLD = 50
   const shouldVirtualize = virtualItems.length >= VIRTUALIZE_THRESHOLD
