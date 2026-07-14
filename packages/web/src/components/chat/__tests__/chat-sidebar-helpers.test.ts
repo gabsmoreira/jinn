@@ -1,5 +1,20 @@
 import { afterEach, describe, expect, it, vi } from 'vitest'
-import { hasBackgroundActivity, isDirectSession, isRecentError, resolveRowIdentity } from '../chat-sidebar'
+import { activeGroupName, buildAgentGroups, hasBackgroundActivity, isDirectSession, isRecentError, resolveRowIdentity } from '../chat-sidebar'
+
+// Minimal web session fixture — buildAgentGroups only reads these fields.
+type TestSession = {
+  id: string
+  source: string
+  sourceRef: string
+  employee: string | null
+  lastActivity: string
+}
+const sess = (
+  id: string,
+  employee: string | undefined,
+  lastActivity: string,
+  extra: Record<string, unknown> = {},
+): TestSession => ({ id, source: 'web', sourceRef: `web:${id}`, employee: employee ?? null, lastActivity, ...extra })
 
 afterEach(() => {
   vi.useRealTimers()
@@ -23,6 +38,115 @@ describe('chat sidebar grouping helpers', () => {
     expect(isDirectSession({ source: 'web', sourceRef: 'web:5', employee: 'jinn' }, 'jimbo')).toBe(false)
     // a portal-slug row is still a separate group when no slug is supplied
     expect(isDirectSession({ source: 'web', sourceRef: 'web:6', employee: 'jimbo' })).toBe(false)
+  })
+})
+
+describe('buildAgentGroups', () => {
+  const opts = (over: Partial<{ counts: Record<string, number>; pinnedKeys: Set<string> }> = {}) => ({
+    portalSlug: 'jimbo',
+    counts: over.counts ?? {},
+    pinnedKeys: over.pinnedKeys ?? new Set<string>(),
+  })
+
+  it('collapses an agent with several tasks into ONE group', () => {
+    const groups = buildAgentGroups(
+      [
+        sess('a1', 'firmware-lead', '2026-06-10T10:00:00Z'),
+        sess('a2', 'firmware-lead', '2026-06-10T12:00:00Z'),
+        sess('a3', 'firmware-lead', '2026-06-10T08:00:00Z'),
+      ],
+      opts(),
+    )
+    expect(groups).toHaveLength(1)
+    expect(groups[0].employeeName).toBe('firmware-lead')
+    expect(groups[0].total).toBe(3)
+  })
+
+  it('orders tasks within a group newest-first', () => {
+    const groups = buildAgentGroups(
+      [
+        sess('a1', 'firmware-lead', '2026-06-10T10:00:00Z'),
+        sess('a2', 'firmware-lead', '2026-06-10T12:00:00Z'),
+        sess('a3', 'firmware-lead', '2026-06-10T08:00:00Z'),
+      ],
+      opts(),
+    )
+    expect(groups[0].sessions.map((s) => s.id)).toEqual(['a2', 'a1', 'a3'])
+  })
+
+  it('orders groups by most-recent activity (agent last touched on top)', () => {
+    const groups = buildAgentGroups(
+      [
+        sess('a1', 'firmware-lead', '2026-06-10T09:00:00Z'),
+        sess('b1', 'thermostat-firmware', '2026-06-10T12:00:00Z'),
+        sess('c1', 'longrange-firmware', '2026-06-10T10:00:00Z'),
+      ],
+      opts(),
+    )
+    expect(groups.map((g) => g.employeeName)).toEqual([
+      'thermostat-firmware',
+      'longrange-firmware',
+      'firmware-lead',
+    ])
+  })
+
+  it('puts pinned agents first regardless of recency, and uses counts for total', () => {
+    const groups = buildAgentGroups(
+      [
+        sess('a1', 'lead-a', '2026-06-10T09:00:00Z'),
+        sess('b1', 'lead-b', '2026-06-10T12:00:00Z'),
+      ],
+      opts({ counts: { 'lead-a': 5 }, pinnedKeys: new Set(['emp:lead-a']) }),
+    )
+    expect(groups[0].employeeName).toBe('lead-a')
+    expect(groups[0].pinned).toBe(true)
+    expect(groups[0].total).toBe(5) // authoritative server count, not loaded length
+    expect(groups[1].employeeName).toBe('lead-b')
+  })
+
+  it('folds employee-less and portal-slug sessions into a single direct group', () => {
+    const groups = buildAgentGroups(
+      [
+        sess('d1', undefined, '2026-06-10T10:00:00Z'),
+        sess('d2', 'jimbo', '2026-06-10T11:00:00Z'), // portal slug → direct
+      ],
+      opts(),
+    )
+    expect(groups).toHaveLength(1)
+    expect(groups[0].groupKey).toBe('__direct__')
+    expect(groups[0].isDirect).toBe(true)
+    expect(groups[0].sessions.map((s) => s.id)).toEqual(['d2', 'd1'])
+  })
+
+  it('excludes cron sessions (they render in their own section)', () => {
+    const groups = buildAgentGroups(
+      [
+        { id: 'c1', source: 'cron', sourceRef: 'cron:daily', employee: null, lastActivity: '2026-06-10T12:00:00Z' },
+        sess('a1', 'firmware-lead', '2026-06-10T10:00:00Z'),
+      ],
+      opts(),
+    )
+    expect(groups.map((g) => g.groupKey)).toEqual(['firmware-lead'])
+  })
+})
+
+describe('activeGroupName', () => {
+  const groups = buildAgentGroups(
+    [
+      sess('a1', 'lead-a', '2026-06-10T09:00:00Z'),
+      sess('b1', 'lead-b', '2026-06-10T12:00:00Z'),
+    ],
+    { portalSlug: 'jimbo', counts: {}, pinnedKeys: new Set<string>() },
+  )
+
+  it('returns the group that holds the open chat', () => {
+    expect(activeGroupName(groups, 'a1')).toBe('lead-a')
+    expect(activeGroupName(groups, 'b1')).toBe('lead-b')
+  })
+
+  it('returns undefined for an unknown or null selection', () => {
+    expect(activeGroupName(groups, 'nope')).toBeUndefined()
+    expect(activeGroupName(groups, null)).toBeUndefined()
   })
 })
 
