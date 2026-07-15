@@ -483,15 +483,15 @@ const SessionRow = React.memo(function SessionRow({
             </span>
           )}
           {isPinned ? (
-            <Pin className="size-3 shrink-0 text-[var(--text-tertiary)] group-hover/session:lg:hidden group-has-[[data-state=open]]/session:lg:hidden" />
+            <Pin className="size-3 shrink-0 text-[var(--text-tertiary)] group-hover/session:lg:opacity-0 group-has-[[data-state=open]]/session:lg:opacity-0" />
           ) : null}
-          <span className="shrink-0 text-[10px] text-[var(--text-quaternary)] group-hover/session:lg:hidden group-has-[[data-state=open]]/session:lg:hidden">{sessionTime}</span>
+          <span className="shrink-0 text-[10px] text-[var(--text-quaternary)] group-hover/session:lg:opacity-0 group-has-[[data-state=open]]/session:lg:opacity-0">{sessionTime}</span>
           <DropdownMenu>
             <DropdownMenuTrigger asChild>
               <button
                 onClick={(e) => e.stopPropagation()}
                 aria-label="Session actions"
-                className="flex size-9 shrink-0 items-center justify-center rounded-md text-muted-foreground transition-colors hover:text-foreground lg:size-7 lg:hidden group-hover/session:lg:flex group-has-[[data-state=open]]/session:lg:flex"
+                className="flex size-9 shrink-0 items-center justify-center rounded-md text-muted-foreground transition-colors hover:text-foreground lg:absolute lg:right-4 lg:top-1/2 lg:size-7 lg:-translate-y-1/2 lg:invisible group-hover/session:lg:visible group-has-[[data-state=open]]/session:lg:visible"
               >
                 <EllipsisVertical className="size-3.5" />
               </button>
@@ -672,14 +672,14 @@ const FlatSessionRow = React.memo(function FlatSessionRow({
           </button>
 
           {isPinned ? (
-            <Pin className="size-3 shrink-0 text-[var(--text-tertiary)] group-hover/flat:lg:hidden group-has-[[data-state=open]]/flat:lg:hidden" />
+            <Pin className="size-3 shrink-0 text-[var(--text-tertiary)] group-hover/flat:lg:opacity-0 group-has-[[data-state=open]]/flat:lg:opacity-0" />
           ) : null}
           <DropdownMenu>
             <DropdownMenuTrigger asChild>
               <button
                 onClick={(e) => e.stopPropagation()}
                 aria-label="Chat actions"
-                className="flex size-9 shrink-0 items-center justify-center rounded-md text-muted-foreground transition-colors hover:text-foreground lg:size-7 lg:hidden group-hover/flat:lg:flex group-has-[[data-state=open]]/flat:lg:flex"
+                className="flex size-9 shrink-0 items-center justify-center rounded-md text-muted-foreground transition-colors hover:text-foreground lg:absolute lg:right-4 lg:top-1/2 lg:size-7 lg:-translate-y-1/2 lg:invisible group-hover/flat:lg:visible group-has-[[data-state=open]]/flat:lg:visible"
               >
                 <EllipsisVertical className="size-3.5" />
               </button>
@@ -824,13 +824,13 @@ const EmployeeRow = React.memo(function EmployeeRow({
                 >
                   {displayName}
                 </span>
-                <span className="shrink-0 text-[10px] text-[var(--text-tertiary)] group-hover/emp:lg:hidden group-has-[[data-state=open]]/emp:lg:hidden">{timeLabel}</span>
+                <span className="shrink-0 text-[10px] text-[var(--text-tertiary)] group-hover/emp:lg:opacity-0 group-has-[[data-state=open]]/emp:lg:opacity-0">{timeLabel}</span>
                 <DropdownMenu>
                   <DropdownMenuTrigger asChild>
                     <button
                       onClick={(e) => e.stopPropagation()}
                       aria-label="Employee chat actions"
-                      className="absolute right-1 top-1/2 flex size-9 shrink-0 -translate-y-1/2 items-center justify-center rounded-md text-muted-foreground transition-colors hover:text-foreground lg:static lg:size-7 lg:translate-y-0 lg:hidden group-hover/emp:lg:flex group-has-[[data-state=open]]/emp:lg:flex"
+                      className="absolute right-1 top-1/2 flex size-9 shrink-0 -translate-y-1/2 items-center justify-center rounded-md text-muted-foreground transition-colors hover:text-foreground lg:size-7 lg:invisible group-hover/emp:lg:visible group-has-[[data-state=open]]/emp:lg:visible"
                     >
                       <EllipsisVertical className="size-3.5" />
                     </button>
