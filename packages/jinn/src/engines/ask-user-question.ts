@@ -30,10 +30,12 @@ export function parseAskUserQuestionInput(input: unknown): QuestionSpec[] | null
       if (ro && typeof ro === "object") {
         const o = ro as Record<string, unknown>;
         if (typeof o.label === "string") {
-          options.push({ label: o.label, description: typeof o.description === "string" ? o.description : undefined });
+          const option: QuestionOption = { label: o.label };
+          if (typeof o.description === "string") option.description = o.description;
+          options.push(option);
         }
       } else if (typeof ro === "string") {
-        options.push({ label: ro, description: undefined });
+        options.push({ label: ro });
       }
     }
     if (options.length === 0) continue;

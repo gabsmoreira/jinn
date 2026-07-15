@@ -112,6 +112,119 @@ describe("chat blocks", () => {
     });
   });
 
+  it("accepts a valid question put envelope with an option lacking a description", () => {
+    const result = validateBlockEnvelope({
+      op: "put",
+      block: {
+        id: "askq-x",
+        type: "question",
+        version: 1,
+        payload: {
+          toolId: "tool-1",
+          answered: false,
+          questions: [
+            {
+              header: "",
+              question: "Which approach?",
+              multiSelect: false,
+              options: [{ label: "Option A" }],
+            },
+          ],
+        },
+      },
+    });
+
+    expect(result.ok).toBe(true);
+    if (result.ok) {
+      expect(blockFallbackText(result.envelope.block)).toBe("question: Which approach?");
+    }
+  });
+
+  it("rejects a question put with missing questions[]", () => {
+    const result = validateBlockEnvelope({
+      op: "put",
+      block: {
+        id: "askq-x",
+        type: "question",
+        version: 1,
+        payload: {
+          toolId: "tool-1",
+          answered: false,
+        },
+      },
+    });
+
+    expect(result).toMatchObject({ ok: false, error: "question payload requires questions[]" });
+  });
+
+  it("rejects a question put with empty questions[]", () => {
+    const result = validateBlockEnvelope({
+      op: "put",
+      block: {
+        id: "askq-x",
+        type: "question",
+        version: 1,
+        payload: {
+          toolId: "tool-1",
+          answered: false,
+          questions: [],
+        },
+      },
+    });
+
+    expect(result).toMatchObject({ ok: false, error: "question payload requires questions[]" });
+  });
+
+  it("rejects a question option without a string label", () => {
+    const result = validateBlockEnvelope({
+      op: "put",
+      block: {
+        id: "askq-x",
+        type: "question",
+        version: 1,
+        payload: {
+          toolId: "tool-1",
+          answered: false,
+          questions: [
+            {
+              header: "",
+              question: "Which approach?",
+              multiSelect: false,
+              options: [{ description: "no label here" }],
+            },
+          ],
+        },
+      },
+    });
+
+    expect(result).toMatchObject({ ok: false, error: "question option requires label" });
+  });
+
+  it("accepts a question option with a real description", () => {
+    const result = validateBlockEnvelope({
+      op: "put",
+      block: {
+        id: "askq-x",
+        type: "question",
+        version: 1,
+        payload: {
+          toolId: "tool-1",
+          answered: false,
+          questions: [
+            {
+              header: "",
+              question: "Which approach?",
+              multiSelect: false,
+              options: [{ label: "Option A", description: "Detailed rationale" }],
+            },
+          ],
+        },
+      },
+    });
+
+    expect(result.ok).toBe(true);
+  });
+
   it("rejects obsolete diff and approval block types", () => {
     expect(validateBlockEnvelope({
       op: "put",
