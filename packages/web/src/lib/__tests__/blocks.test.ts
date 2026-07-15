@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest"
-import { applyBlockEnvelopeToMessages } from "../blocks"
+import { applyBlockEnvelopeToMessages, isChatBlock } from "../blocks"
 
 describe("web chat block reducer", () => {
   it("puts, patches, and removes a block message by block id", () => {
@@ -163,5 +163,17 @@ describe("web chat block reducer", () => {
     expect(next).toHaveLength(2);
     expect(next[0]?.blocks).toBeUndefined();
     expect(next[1]?.blocks?.[0]?.id).toBe("plan");
+  });
+
+  it('accepts a question block', () => {
+    const block = {
+      id: 'q-tool_1', type: 'question', version: 1,
+      payload: {
+        toolId: 'tool_1', answered: false,
+        questions: [{ header: 'Color', question: 'Pick a color', multiSelect: false,
+          options: [{ label: 'Red', description: 'The color red' }] }],
+      },
+    }
+    expect(isChatBlock(block)).toBe(true)
   });
 });
