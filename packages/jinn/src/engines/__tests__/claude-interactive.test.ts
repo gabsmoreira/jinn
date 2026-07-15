@@ -7,7 +7,7 @@ import { afterEach, describe, it, expect, vi } from "vitest";
 // focused and CI-portable.
 vi.mock("node-pty", () => ({ spawn: vi.fn() }));
 
-import { TurnResolver, buildInteractiveArgs, claudeHookToDeltas, pasteAndSubmit } from "../claude-interactive.js";
+import { TurnResolver, buildInteractiveArgs, claudeHookToDeltas, pasteAndSubmit, DISALLOWED_TOOLS } from "../claude-interactive.js";
 import { MAIN_AGENT_SENTINEL } from "../sse-pty-proxy.js";
 import { buildPromptWithPlatformContext } from "../platform-context.js";
 
@@ -190,5 +190,10 @@ describe("buildInteractiveArgs — disallowed tools", () => {
     const disallowed = args.slice(i + 1, i + 3);
     expect(disallowed).toContain("ExitPlanMode");
     expect(disallowed).not.toContain("AskUserQuestion");
+  });
+
+  it("DISALLOWED_TOOLS constant enforces the contract: ExitPlanMode in, AskUserQuestion out", () => {
+    expect(DISALLOWED_TOOLS).toContain("ExitPlanMode");
+    expect(DISALLOWED_TOOLS).not.toContain("AskUserQuestion");
   });
 });

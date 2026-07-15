@@ -17,6 +17,11 @@ import { buildPromptWithPlatformContext } from "./platform-context.js";
 
 export type { PtyControlEvent } from "./pty-view-engine.js";
 
+// Tools the interactive PTY blocks. AskUserQuestion is intentionally allowed
+// (surfaced in chat); ExitPlanMode stays disabled. Single source of truth for
+// both spawn paths (buildInteractiveArgs and ensureIdleSpawn).
+export const DISALLOWED_TOOLS = ["ExitPlanMode"] as const;
+
 interface InteractiveArgsOpts {
   prompt: string;
   settingsPath: string;
@@ -194,7 +199,7 @@ export function buildInteractiveArgs(o: InteractiveArgsOpts): string[] {
   if (o.effortLevel && o.effortLevel !== "default") args.push("--effort", o.effortLevel);
   if (o.model) args.push("--model", o.model);
   args.push("--dangerously-skip-permissions");
-  args.push("--disallowedTools", "ExitPlanMode");
+  args.push("--disallowedTools", ...DISALLOWED_TOOLS);
   args.push("--settings", o.settingsPath);
   if (o.appendSystemPrompt) args.push("--append-system-prompt", o.appendSystemPrompt);
   if (o.cliFlags?.length) args.push(...o.cliFlags);
@@ -974,7 +979,7 @@ export class InteractiveClaudeEngine implements InterruptibleEngine, PtyViewEngi
     const args: string[] = [
       "--chrome",
       "--dangerously-skip-permissions",
-      "--disallowedTools", "ExitPlanMode",
+      "--disallowedTools", ...DISALLOWED_TOOLS,
       "--settings", settingsPath,
     ];
     if (opts.engineSessionId) args.unshift("--resume", opts.engineSessionId);
