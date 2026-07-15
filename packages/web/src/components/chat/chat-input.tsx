@@ -2,6 +2,7 @@ import React, { useState, useRef, useEffect, useCallback, useMemo } from 'react'
 import { api } from '@/lib/api'
 import type { MediaAttachment } from '@/lib/conversations'
 import { MediaPreview } from './media-preview'
+import { loadDraft, saveDraft } from './chat-drafts'
 import { useStt } from '@/hooks/use-stt'
 import { WhisperDownloadModal } from '@/components/stt/whisper-download-modal'
 import { MicWaveform } from './mic-waveform'
@@ -58,6 +59,8 @@ export function resolveClientCommand(text: string): ClientCommand | null {
 interface ChatInputProps {
   disabled: boolean
   loading: boolean
+  /** Current session id — the composer draft is persisted per session. */
+  sessionId?: string | null
   onSend: (message: string, media?: MediaAttachment[], interrupt?: boolean) => void
   onInterrupt?: () => void
   onNewSession: () => void
@@ -144,6 +147,7 @@ async function fileToAttachment(file: File): Promise<MediaAttachment> {
 export function ChatInput({
   disabled,
   loading,
+  sessionId,
   onSend,
   onInterrupt,
   onNewSession,
@@ -159,7 +163,7 @@ export function ChatInput({
   mobileTerminalActionsSlot,
   reserveTerminalActions,
 }: ChatInputProps) {
-  const [value, setValue] = useState('')
+  const [value, setValue] = useState(() => loadDraft(sessionId))
   const [employees, setEmployees] = useState<Employee[]>([])
   const [showMentions, setShowMentions] = useState(false)
   const [mentionFilter, setMentionFilter] = useState('')
@@ -172,6 +176,13 @@ export function ChatInput({
   const textareaRef = useRef<HTMLTextAreaElement>(null)
   const fileInputRef = useRef<HTMLInputElement>(null)
   const rafRef = useRef<number | null>(null)
+
+  // Persist the composer draft per session. ChatPane remounts this component per
+  // session (key=selectedId), so sessionId is stable for an instance's lifetime —
+  // no cross-session write. Sending sets value to '' which clears the stored draft.
+  useEffect(() => {
+    saveDraft(sessionId, value)
+  }, [value, sessionId])
 
   const resize = useCallback((el: HTMLTextAreaElement) => {
     if (rafRef.current != null) cancelAnimationFrame(rafRef.current)

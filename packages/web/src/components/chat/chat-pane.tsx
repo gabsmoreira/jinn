@@ -560,6 +560,7 @@ export function ChatPane({
       <ChatInput
         disabled={false}
         loading={loading}
+        sessionId={sessionId}
         onSend={handleSend}
         onInterrupt={handleInterrupt}
         onNewSession={handleNewSession}
