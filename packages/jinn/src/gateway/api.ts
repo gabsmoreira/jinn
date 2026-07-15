@@ -179,8 +179,14 @@ export function formatEngineErrorAssistantMessage(error: string): string {
 }
 
 export function finalBlocksForAssistantMessage(blocks: ChatBlock[], preservedBlockIds: Set<string>): ChatBlock[] {
-  if (preservedBlockIds.size === 0) return blocks;
-  return blocks.filter((block) => !preservedBlockIds.has(block.id));
+  // `question` blocks are ephemeral, live-only interactive affordances (a picker
+  // rendered while the turn is streaming). The durable record of that exchange is
+  // Claude's text reply, so question blocks must never be attached to the persisted
+  // assistant message — otherwise they'd duplicate the live copy and re-render as a
+  // stale interactive picker every time the chat is reloaded or reconciled.
+  const durable = blocks.filter((block) => block.type !== "question");
+  if (preservedBlockIds.size === 0) return durable;
+  return durable.filter((block) => !preservedBlockIds.has(block.id));
 }
 
 export interface ApiContext {

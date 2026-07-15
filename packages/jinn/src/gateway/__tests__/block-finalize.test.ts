@@ -48,6 +48,33 @@ describe("block finalization", () => {
     ], new Set(["progress"])).map((block) => block.id)).toEqual(["plan"]);
   });
 
+  it("excludes interactive question blocks from the final assistant row", () => {
+    expect(finalBlocksForAssistantMessage([
+      { id: "plan", type: "task-list", version: 1, payload: {} },
+      { id: "q1", type: "question", version: 1, payload: {} },
+    ], new Set()).map((block) => block.id)).toEqual(["plan"]);
+  });
+
+  it("returns an empty array when the only block is a question", () => {
+    expect(finalBlocksForAssistantMessage([
+      { id: "q1", type: "question", version: 1, payload: {} },
+    ], new Set())).toEqual([]);
+  });
+
+  it("still keeps non-question blocks with empty preservedBlockIds, and still applies preservedBlockIds filtering to non-question blocks", () => {
+    expect(finalBlocksForAssistantMessage([
+      { id: "plan", type: "task-list", version: 1, payload: {} },
+    ], new Set())).toEqual([
+      { id: "plan", type: "task-list", version: 1, payload: {} },
+    ]);
+
+    expect(finalBlocksForAssistantMessage([
+      { id: "plan", type: "task-list", version: 1, payload: {} },
+      { id: "progress", type: "task-list", version: 1, payload: {} },
+      { id: "q1", type: "question", version: 1, payload: {} },
+    ], new Set(["progress"])).map((block) => block.id)).toEqual(["plan"]);
+  });
+
   it("drops malformed block deltas before scoping ids", () => {
     const result = normalizeBlockDeltaForTurn({
       type: "block",
