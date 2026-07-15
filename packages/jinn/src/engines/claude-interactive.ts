@@ -2,7 +2,7 @@ import fs from "node:fs";
 import path from "node:path";
 import os from "node:os";
 import * as pty from "node-pty";
-import type { InterruptibleEngine, EngineRunOpts, EngineResult, EngineRateLimitInfo, StreamDelta } from "../shared/types.js";
+import type { InterruptibleEngine, EngineRunOpts, EngineResult, EngineRateLimitInfo, StreamDelta, JsonObject } from "../shared/types.js";
 import { logger } from "../shared/logger.js";
 import { JINN_HOME, CLAUDE_SETTINGS_DIR, HOOK_RELAY_SCRIPT, CLAUDE_LIMITS_DIR } from "../shared/paths.js";
 import { cleanupSessionSettings, writeSessionSettings } from "../shared/claude-settings.js";
@@ -14,6 +14,7 @@ import type { HookRegistry, HookPayload } from "../gateway/hook-registry.js";
 import { SsePtyProxy, MAIN_AGENT_SENTINEL, type SseDataEvent, type UpstreamActivityInfo } from "./sse-pty-proxy.js";
 import { neutralizeForPaste } from "../shared/skill-commands.js";
 import { buildPromptWithPlatformContext } from "./platform-context.js";
+import { AskUserQuestionAssembler } from "./ask-user-question.js";
 
 export type { PtyControlEvent } from "./pty-view-engine.js";
 
@@ -478,7 +479,7 @@ export class InteractiveClaudeEngine implements InterruptibleEngine, PtyViewEngi
    *  released by a kill->respawn race can't poison the freshly-started turn.
    *  `onStream` is the current turn's delta callback; the per-PTY SSE proxy routes
    *  parsed events here (a PTY outlives its turn, so the proxy looks this up live). */
-  private active = new Map<string, { resolver: TurnResolver; onStream?: (d: StreamDelta) => void; boundProc?: pty.IPty }>();
+  private active = new Map<string, { resolver: TurnResolver; onStream?: (d: StreamDelta) => void; boundProc?: pty.IPty; askq?: AskUserQuestionAssembler }>();
   /** Sessions with an in-flight async idle-spawn (proxy.start awaited) — prevents
    *  a second ensureIdleSpawn from racing in a duplicate PTY during that gap. */
   private idleSpawning = new Set<string>();
@@ -668,10 +669,11 @@ export class InteractiveClaudeEngine implements InterruptibleEngine, PtyViewEngi
       native: nativeCommand,
       shouldDeferStopFailure: () => this.hasActiveUpstream(jinnSessionId),
     });
-    const entry: { resolver: TurnResolver; onStream?: (d: StreamDelta) => void; boundProc?: pty.IPty; activeTools: number } = {
+    const entry: { resolver: TurnResolver; onStream?: (d: StreamDelta) => void; boundProc?: pty.IPty; activeTools: number; askq: AskUserQuestionAssembler } = {
       resolver,
       onStream: opts.onStream,
       activeTools: 0,
+      askq: new AskUserQuestionAssembler(),
     };
     let turnMarkedStarted = false;
     let watchdog: NodeJS.Timeout | undefined;
@@ -861,6 +863,26 @@ export class InteractiveClaudeEngine implements InterruptibleEngine, PtyViewEngi
     const entry = this.active.get(jinnSessionId);
     if (!entry) return; // idle PTY / no turn in flight — nothing to stream
     entry.resolver.noteActivity();
+    if (entry.askq && entry.onStream) {
+      const payload = entry.askq.onEvent(e);
+      if (payload) {
+        entry.onStream({
+          type: "block",
+          content: payload.questions[0]?.question ?? "Question",
+          block: {
+            op: "put",
+            block: {
+              id: `askq-${payload.toolId}`,
+              type: "question",
+              version: 1,
+              sourceEngine: "claude",
+              title: payload.questions[0]?.header || "Question",
+              payload: payload as unknown as JsonObject,
+            },
+          },
+        });
+      }
+    }
     if (!entry.onStream) return;
     // Only the main agent's events reach here (the proxy suppresses sub-agent and
     // auxiliary streams), so deltas go straight to the transcript.
@@ -1058,6 +1080,22 @@ export class InteractiveClaudeEngine implements InterruptibleEngine, PtyViewEngi
     const proc = (handle as any)._proc as pty.IPty | undefined;
     if (!proc) return;
     pasteAndSubmit(proc, text);
+  }
+
+  /** Answer a live AskUserQuestion selector by driving the native TUI: for each
+   *  question, move the cursor Down by the chosen option index (cursor starts at 0)
+   *  then press Enter. v1 supports single-select; each entry in `selections` is the
+   *  chosen option index for that question, applied in order. Returns false if the
+   *  session has no warm PTY (nothing to drive). */
+  answerQuestion(sessionId: string, selections: number[]): boolean {
+    const proc = (this.lifecycle.getWarm(sessionId) as any)?._proc as pty.IPty | undefined;
+    if (!proc) return false;
+    for (const rawIndex of selections) {
+      const index = Number.isFinite(rawIndex) && rawIndex > 0 ? Math.floor(rawIndex) : 0;
+      for (let i = 0; i < index; i++) proc.write("\x1b[B");
+      proc.write("\r");
+    }
+    return true;
   }
 
   writeRaw(sessionId: string, data: string): void {

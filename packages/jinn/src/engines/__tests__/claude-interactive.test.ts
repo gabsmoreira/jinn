@@ -7,7 +7,7 @@ import { afterEach, describe, it, expect, vi } from "vitest";
 // focused and CI-portable.
 vi.mock("node-pty", () => ({ spawn: vi.fn() }));
 
-import { TurnResolver, buildInteractiveArgs, claudeHookToDeltas, pasteAndSubmit, DISALLOWED_TOOLS } from "../claude-interactive.js";
+import { TurnResolver, buildInteractiveArgs, claudeHookToDeltas, pasteAndSubmit, DISALLOWED_TOOLS, InteractiveClaudeEngine } from "../claude-interactive.js";
 import { MAIN_AGENT_SENTINEL } from "../sse-pty-proxy.js";
 import { buildPromptWithPlatformContext } from "../platform-context.js";
 
@@ -195,5 +195,39 @@ describe("buildInteractiveArgs — disallowed tools", () => {
   it("DISALLOWED_TOOLS constant enforces the contract: ExitPlanMode in, AskUserQuestion out", () => {
     expect(DISALLOWED_TOOLS).toContain("ExitPlanMode");
     expect(DISALLOWED_TOOLS).not.toContain("AskUserQuestion");
+  });
+});
+
+function engineWithFakePty(writes: string[]) {
+  const proc = { write: (d: string) => { writes.push(d); } };
+  const handle = { _proc: proc };
+  const lifecycle: any = {
+    getWarm: () => handle,
+    onRelease: () => {},
+  };
+  const hookRegistry: any = { register: () => {}, unregister: () => {} };
+  return new InteractiveClaudeEngine(lifecycle, hookRegistry);
+}
+
+describe("InteractiveClaudeEngine.answerQuestion", () => {
+  it("writes Down×index then Enter for a single-select pick", () => {
+    const writes: string[] = [];
+    const engine = engineWithFakePty(writes);
+    const ok = engine.answerQuestion("jinn-1", [2]);
+    expect(ok).toBe(true);
+    expect(writes).toEqual(["\x1b[B", "\x1b[B", "\r"]);
+  });
+
+  it("picks the first option with just Enter (index 0)", () => {
+    const writes: string[] = [];
+    const engine = engineWithFakePty(writes);
+    engine.answerQuestion("jinn-1", [0]);
+    expect(writes).toEqual(["\r"]);
+  });
+
+  it("returns false when there is no warm PTY", () => {
+    const lifecycle: any = { getWarm: () => undefined, onRelease: () => {} };
+    const engine = new InteractiveClaudeEngine(lifecycle, { register: () => {}, unregister: () => {} } as any);
+    expect(engine.answerQuestion("jinn-1", [1])).toBe(false);
   });
 });
