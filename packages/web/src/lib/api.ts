@@ -326,6 +326,8 @@ export const api = {
     post<{ status: string; sessionId: string }>(`/api/sessions/${id}/stop`, {}),
   resetSession: (id: string) =>
     post<{ status: string; sessionId: string }>(`/api/sessions/${id}/reset`, {}),
+  answerQuestion: (id: string, selections: number[]) =>
+    post<{ status: string; sessionId: string }>(`/api/sessions/${id}/answer-question`, { selections }),
   getCronJobs: () => get<Record<string, unknown>[]>("/api/cron"),
   getCronRuns: (id: string) => get<Record<string, unknown>[]>(`/api/cron/${id}/runs`),
   updateCronJob: (id: string, data: Record<string, unknown>) =>

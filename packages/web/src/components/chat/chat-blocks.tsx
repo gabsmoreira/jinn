@@ -1,5 +1,7 @@
+import { useState } from 'react'
 import { AlertTriangle, Check, Circle, Loader2 } from 'lucide-react'
 import type { ChatBlock, JsonObject, JsonValue } from '@/lib/blocks'
+import { api } from '@/lib/api'
 
 function asRecord(value: JsonValue | undefined): JsonObject | null {
   return value && typeof value === 'object' && !Array.isArray(value) ? value as JsonObject : null
@@ -28,7 +30,9 @@ export function statusMark(status: string | undefined) {
 
 const INLINE_MAX_WIDTH = 'max-w-[min(620px,calc(100vw_-_var(--space-10)))]'
 
-export function ChatBlockInline({ block }: { block: ChatBlock }) {
+export function ChatBlockInline({ block, sessionId }: { block: ChatBlock; sessionId?: string }) {
+  if (block.type === 'question') return <QuestionBlock block={block} sessionId={sessionId} />
+
   const all = asArray(block.payload.items)
   const items = all.slice(0, 6)
   const done = all.filter((raw) => isDoneStatus(asText(asRecord(raw)?.status))).length
@@ -71,6 +75,61 @@ export function ChatBlockInline({ block }: { block: ChatBlock }) {
       {hidden > 0 && (
         <div className="px-0.5 text-[length:var(--text-caption2)] text-[var(--text-quaternary)]">
           {hidden} more
+        </div>
+      )}
+    </div>
+  )
+}
+
+function QuestionBlock({ block, sessionId }: { block: ChatBlock; sessionId?: string }) {
+  const [answered, setAnswered] = useState<boolean>(block.payload.answered === true)
+  const [picked, setPicked] = useState<number | null>(null)
+  const questions = asArray(block.payload.questions)
+  const q = asRecord(questions[0])
+  if (!q) return null
+  const multiSelect = q.multiSelect === true
+  const options = asArray(q.options)
+
+  async function pick(index: number) {
+    if (answered || multiSelect || !sessionId) return
+    setAnswered(true)
+    setPicked(index)
+    try {
+      await api.answerQuestion(sessionId, [index])
+    } catch {
+      setAnswered(false)
+      setPicked(null)
+    }
+  }
+
+  return (
+    <div className={`grid min-w-0 ${INLINE_MAX_WIDTH} gap-1 py-0.5`} data-block-id={block.id} data-block-type="question">
+      <div className="px-0.5 text-[length:var(--text-footnote)] font-[var(--weight-medium)] text-[var(--text-secondary)]">
+        {asText(q.header) || 'Question'}
+      </div>
+      <div className="px-0.5 text-[length:var(--text-body)] text-[var(--text-primary)]">{asText(q.question)}</div>
+      <div className="grid gap-1">
+        {options.map((raw, i) => {
+          const o = asRecord(raw)
+          const label = asText(o?.label)
+          const desc = asText(o?.description)
+          return (
+            <button
+              key={i}
+              type="button"
+              disabled={answered || multiSelect || !sessionId}
+              onClick={() => pick(i)}
+              className={`rounded-md border px-2 py-1 text-left text-[length:var(--text-footnote)] ${picked === i ? 'border-[var(--system-blue)]' : 'border-[var(--separator)]'} disabled:opacity-60`}
+            >
+              <span className="font-[var(--weight-medium)] text-[var(--text-primary)]">{label}</span>
+              {desc && <span className="ml-1 text-[var(--text-tertiary)]">— {desc}</span>}
+            </button>
+          )
+        })}
+      </div>
+      {multiSelect && (
+        <div className="px-0.5 text-[length:var(--text-caption2)] text-[var(--text-tertiary)]">
+          Multi-select — answer in the terminal view.
         </div>
       )}
     </div>

@@ -680,9 +680,10 @@ interface MessageRowProps {
   messages: Message[]
   loading?: boolean
   onRetry?: (text: string) => void
+  sessionId?: string
 }
 
-const MessageRow = React.memo(function MessageRow({ msg, index: i, messages, loading, onRetry }: MessageRowProps) {
+const MessageRow = React.memo(function MessageRow({ msg, index: i, messages, loading, onRetry, sessionId }: MessageRowProps) {
   const isUser = msg.role === 'user'
   const isNotification = msg.role === 'notification'
   const showTimestamp = shouldShowTimestamp(messages, i)
@@ -791,6 +792,7 @@ const MessageRow = React.memo(function MessageRow({ msg, index: i, messages, loa
                   <ChatBlockInline
                     key={block.id}
                     block={block}
+                    sessionId={sessionId}
                   />
                 ))}
               </div>
@@ -846,6 +848,8 @@ interface ChatMessagesProps {
   loadingOlderMessages?: boolean
   olderMessagesError?: Error | null
   onLoadOlderMessages?: () => Promise<void> | void
+  /** Active session id — threaded down to inline chat blocks (e.g. question answers). */
+  sessionId?: string
 }
 
 const JUMP_EXIT_MS = 140
@@ -969,6 +973,7 @@ export function ChatMessages({
   loadingOlderMessages = false,
   olderMessagesError = null,
   onLoadOlderMessages,
+  sessionId,
 }: ChatMessagesProps) {
   // Stick-to-bottom: one hook owns follow-intent, growth-follow, resize/keyboard,
   // tab-return, mount-snap, and the jump affordance. See use-stick-to-bottom.ts.
@@ -1103,6 +1108,7 @@ export function ChatMessages({
                 messages={messages}
                 loading={loading}
                 onRetry={onRetry}
+                sessionId={sessionId}
               />
             )
           })}

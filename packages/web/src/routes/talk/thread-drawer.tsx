@@ -354,7 +354,7 @@ function DrawerPanel({
             // Reuse the main chat renderer verbatim — groupMessages + per-message
             // bubbles + markdown/file-links live inside ChatMessages. Now driven by
             // the shared live pipeline so it streams tokens + media in real time.
-            <ChatMessages messages={messages} loading={loading} streamingText={streamingText} />
+            <ChatMessages messages={messages} loading={loading} streamingText={streamingText} sessionId={sessionId} />
           )}
         </div>
 

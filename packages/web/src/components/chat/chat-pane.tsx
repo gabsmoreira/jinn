@@ -536,6 +536,7 @@ export function ChatPane({
           loadingOlderMessages={loadingOlderMessages}
           olderMessagesError={olderMessagesError}
           onLoadOlderMessages={loadOlderMessages}
+          sessionId={sessionId ?? undefined}
         />
       ) : null}
 
