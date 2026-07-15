@@ -180,3 +180,15 @@ describe("pasteAndSubmit", () => {
     ]);
   });
 });
+
+describe("buildInteractiveArgs — disallowed tools", () => {
+  it("re-enables AskUserQuestion but keeps ExitPlanMode disabled", () => {
+    const args = buildInteractiveArgs({ prompt: "hi", settingsPath: "/s.json" });
+    const i = args.indexOf("--disallowedTools");
+    expect(i).toBeGreaterThan(-1);
+    // The tokens immediately after --disallowedTools are the disallowed tool names.
+    const disallowed = args.slice(i + 1, i + 3);
+    expect(disallowed).toContain("ExitPlanMode");
+    expect(disallowed).not.toContain("AskUserQuestion");
+  });
+});
