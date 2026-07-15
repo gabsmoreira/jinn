@@ -1027,6 +1027,23 @@ export async function handleApiRequest(
       return json(res, { status: "stopped", sessionId: params.id });
     }
 
+    // POST /api/sessions/:id/answer-question — answer a live AskUserQuestion selector
+    params = matchRoute("/api/sessions/:id/answer-question", pathname);
+    if (method === "POST" && params) {
+      const session = getSession(params.id);
+      if (!session) return notFound(res);
+      const _parsed = await readJsonBody(req, res);
+      if (!_parsed.ok) return;
+      const selections = (_parsed.body as { selections?: unknown } | null)?.selections;
+      if (!Array.isArray(selections) || !selections.every((n) => typeof n === "number")) {
+        return json(res, { error: "selections must be a number[]" }, 400);
+      }
+      const engine = context.interactiveClaudeEngine;
+      const ok = engine?.answerQuestion(params.id, selections as number[]) ?? false;
+      if (!ok) return json(res, { error: "no active session" }, 409);
+      return json(res, { status: "answered", sessionId: params.id });
+    }
+
     // POST /api/sessions/:id/reset — clear stuck session state (stale engine IDs, errors)
     params = matchRoute("/api/sessions/:id/reset", pathname);
     if (method === "POST" && params) {
