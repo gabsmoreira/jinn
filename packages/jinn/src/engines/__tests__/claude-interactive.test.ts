@@ -7,9 +7,10 @@ import { afterEach, describe, it, expect, vi } from "vitest";
 // focused and CI-portable.
 vi.mock("node-pty", () => ({ spawn: vi.fn() }));
 
-import { TurnResolver, buildInteractiveArgs, claudeHookToDeltas, pasteAndSubmit, DISALLOWED_TOOLS, InteractiveClaudeEngine } from "../claude-interactive.js";
+import { TurnResolver, buildInteractiveArgs, claudeHookToDeltas, sseEventToDeltas, pasteAndSubmit, DISALLOWED_TOOLS, InteractiveClaudeEngine } from "../claude-interactive.js";
 import { MAIN_AGENT_SENTINEL } from "../sse-pty-proxy.js";
 import { buildPromptWithPlatformContext } from "../platform-context.js";
+import { AskUserQuestionAssembler } from "../ask-user-question.js";
 
 afterEach(() => {
   vi.useRealTimers();
@@ -29,6 +30,33 @@ describe("claudeHookToDeltas", () => {
       hook_event_name: "PostToolUse",
       tool_name: "Bash",
     })).toEqual([{ type: "tool_result", content: "Bash", toolName: "Bash" }]);
+  });
+
+  it("suppresses the raw tool_result marker for AskUserQuestion (clean question block owns the UI)", () => {
+    expect(claudeHookToDeltas({
+      hook_event_name: "PostToolUse",
+      tool_name: "AskUserQuestion",
+    })).toEqual([]);
+  });
+});
+
+describe("sseEventToDeltas — AskUserQuestion tool_use suppression", () => {
+  it("suppresses the tool_use marker for AskUserQuestion (clean question block owns the UI)", () => {
+    const deltas = sseEventToDeltas({
+      type: "content_block_start",
+      index: 0,
+      content_block: { type: "tool_use", name: "AskUserQuestion", id: "toolu_x" },
+    } as any);
+    expect(deltas).toEqual([]);
+  });
+
+  it("control: still emits a tool_use marker for other tools (e.g. Bash)", () => {
+    const deltas = sseEventToDeltas({
+      type: "content_block_start",
+      index: 0,
+      content_block: { type: "tool_use", name: "Bash", id: "toolu_x" },
+    } as any);
+    expect(deltas).toEqual([{ type: "tool_use", content: "Bash", toolName: "Bash", toolId: "toolu_x" }]);
   });
 });
 
@@ -229,5 +257,63 @@ describe("InteractiveClaudeEngine.answerQuestion", () => {
     const lifecycle: any = { getWarm: () => undefined, onRelease: () => {} };
     const engine = new InteractiveClaudeEngine(lifecycle, { register: () => {}, unregister: () => {} } as any);
     expect(engine.answerQuestion("jinn-1", [1])).toBe(false);
+  });
+});
+
+describe("InteractiveClaudeEngine — AskUserQuestion question-block emission (handleSseEvent)", () => {
+  // handleSseEvent is private and only reachable in production via the per-PTY
+  // SSE proxy callback wired inside spawn()/ensureIdleSpawn(). There is no public
+  // seam to install an "active turn" without a real PTY spawn, so this test
+  // reaches into the private `active` map directly (same style as reading
+  // internals elsewhere in this file) to set up the state handleSseEvent expects,
+  // then invokes the private method via an `any` cast.
+  it("emits ONLY a clean question block — no raw tool_use marker — for a single-question AskUserQuestion tool_use", () => {
+    const writes: string[] = [];
+    const engine = engineWithFakePty(writes);
+    const sessionId = "jinn-askq-emission";
+    const deltas: any[] = [];
+    const resolver = new TurnResolver({ fallbackSessionId: "warm-sid", assumeStarted: true });
+
+    (engine as any).active.set(sessionId, {
+      resolver,
+      onStream: (d: any) => deltas.push(d),
+      askq: new AskUserQuestionAssembler(),
+    });
+
+    const emit = (e: any) => (engine as any).handleSseEvent(sessionId, e);
+
+    emit({
+      type: "content_block_start",
+      index: 0,
+      content_block: { type: "tool_use", id: "toolu_e", name: "AskUserQuestion" },
+    });
+    emit({
+      type: "content_block_delta",
+      index: 0,
+      delta: {
+        type: "input_json_delta",
+        partial_json: JSON.stringify({
+          questions: [{
+            header: "Pick one",
+            question: "Which approach?",
+            multiSelect: false,
+            options: [{ label: "A" }, { label: "B" }],
+          }],
+        }),
+      },
+    });
+    emit({ type: "content_block_stop", index: 0 });
+
+    // No raw tool_use marker leaked through for AskUserQuestion.
+    expect(deltas.some((d) => d.type === "tool_use")).toBe(false);
+
+    const blockDeltas = deltas.filter((d) => d.type === "block");
+    expect(blockDeltas).toHaveLength(1);
+    const block = blockDeltas[0].block;
+    expect(block.op).toBe("put");
+    expect(block.block.type).toBe("question");
+    expect(block.block.id).toBe("askq-toolu_e");
+    expect(block.block.payload.questions[0].question).toBe("Which approach?");
+    expect(block.block.payload.questions[0].options).toEqual([{ label: "A" }, { label: "B" }]);
   });
 });

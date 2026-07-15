@@ -211,6 +211,11 @@ export function buildInteractiveArgs(o: InteractiveArgsOpts): string[] {
 export function claudeHookToDeltas(h: Record<string, unknown>): StreamDelta[] {
   if (h.hook_event_name !== "PostToolUse") return [];
   const toolName = typeof h.tool_name === "string" ? h.tool_name : undefined;
+  // AskUserQuestion is rendered as a clean, dedicated question block (assembled
+  // from the SSE stream) — a raw "Used AskUserQuestion" tool_result marker after
+  // the answer would be a redundant/confusing echo. Every other tool keeps its
+  // normal completion marker.
+  if (toolName === "AskUserQuestion") return [];
   return [{
     type: "tool_result",
     content: String(h.tool_name ?? ""),
@@ -241,6 +246,11 @@ export function sseEventToDeltas(e: SseDataEvent): StreamDelta[] {
     case "content_block_start": {
       const cb = (e as any).content_block;
       if (cb?.type === "tool_use") {
+        // AskUserQuestion is surfaced exclusively via the clean question block
+        // that handleSseEvent assembles (AskUserQuestionAssembler) — suppress its
+        // raw tool_use marker so the chat doesn't also show a "Using
+        // AskUserQuestion" tool card. Every other tool keeps its marker unchanged.
+        if (cb.name === "AskUserQuestion") return [];
         return [{ type: "tool_use", content: String(cb.name ?? "tool"), toolName: String(cb.name ?? "tool"), toolId: String(cb.id ?? "") }];
       }
       return [];
