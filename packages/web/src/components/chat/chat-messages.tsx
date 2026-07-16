@@ -60,8 +60,14 @@ function ToolGroup({
   const [showAllTools, setShowAllTools] = useState(false)
   const allDone = msgs.every(isToolDone)
   const activeIndex = isActive ? findActiveToolIndex(msgs) : -1
+  // While a tool is running, show it + its command right in the collapsed pill
+  // ("Bash · npm test") so the current command is visible without expanding.
+  const activeMsg = activeIndex >= 0 ? msgs[activeIndex] : undefined
+  const activeLabel = activeMsg?.toolCall
+    ? `${activeMsg.toolCall}${activeMsg.toolInput ? ` · ${activeMsg.toolInput}` : ''}`
+    : undefined
   const label = isActive && !allDone
-    ? `${msgs.length} tool${msgs.length !== 1 ? 's' : ''} running…`
+    ? activeLabel ?? `${msgs.length} tool${msgs.length !== 1 ? 's' : ''} running…`
     : `${msgs.length} tool${msgs.length !== 1 ? 's' : ''}`
   const indexedMsgs = msgs.map((msg, index) => ({ msg, index }))
   const activeEntry = activeIndex >= 10 ? indexedMsgs[activeIndex] : undefined
@@ -1045,32 +1051,37 @@ export function ChatMessages({
     return -1
   }, [groupedMessages, loading])
 
-  // Live turn timer + per-turn "took N" stamp (Claude-Code style). Times from the
-  // moment the turn starts (loading true) and, on completion, records the duration
-  // against the turn's last assistant text message. UI-only/ephemeral.
+  // Live turn timer + per-turn "took N" stamp (Claude-Code style). The turn's
+  // start is anchored to the PROMPT — the last user message's timestamp — not a
+  // component ref, so the elapsed clock stays correct across chat-tab switches
+  // (ChatPane remounts per session) and page reloads.
   const messagesRef = useRef(messages)
   messagesRef.current = messages
-  const [elapsedMs, setElapsedMs] = useState(0)
-  const turnStartRef = useRef<number | null>(null)
-  const [turnDurations, setTurnDurations] = useState<Record<string, number>>({})
+  const turnAnchorTs = useMemo(() => {
+    for (let i = messages.length - 1; i >= 0; i--) {
+      if (messages[i].role === 'user') return messages[i].timestamp
+    }
+    return null
+  }, [messages])
+  const [nowMs, setNowMs] = useState(() => Date.now())
   useEffect(() => {
-    if (loading) {
-      if (turnStartRef.current == null) turnStartRef.current = Date.now()
-      const tick = () => setElapsedMs(Date.now() - (turnStartRef.current ?? Date.now()))
-      tick()
-      const id = setInterval(tick, 1000)
-      return () => clearInterval(id)
-    }
-    if (turnStartRef.current != null) {
-      const dur = Date.now() - turnStartRef.current
-      turnStartRef.current = null
-      setElapsedMs(0)
-      if (dur >= 1000) {
-        const anchor = [...messagesRef.current].reverse().find((m) => m.role === 'assistant' && !m.toolCall)
-        if (anchor) setTurnDurations((prev) => ({ ...prev, [anchor.id]: dur }))
-      }
-    }
+    if (!loading) return
+    setNowMs(Date.now())
+    const id = setInterval(() => setNowMs(Date.now()), 1000)
+    return () => clearInterval(id)
   }, [loading])
+  const elapsedMs = loading && turnAnchorTs != null ? Math.max(0, nowMs - turnAnchorTs) : 0
+
+  const [turnDurations, setTurnDurations] = useState<Record<string, number>>({})
+  const prevLoadingRef = useRef(loading)
+  useEffect(() => {
+    if (prevLoadingRef.current && !loading && turnAnchorTs != null) {
+      const dur = Date.now() - turnAnchorTs
+      const anchor = [...messagesRef.current].reverse().find((m) => m.role === 'assistant' && !m.toolCall)
+      if (anchor && dur >= 1000) setTurnDurations((prev) => ({ ...prev, [anchor.id]: dur }))
+    }
+    prevLoadingRef.current = loading
+  }, [loading, turnAnchorTs])
 
   // Current activity for the working indicator: the active tool (+command) if one
   // is running, otherwise Responding (text streaming) / Thinking.
