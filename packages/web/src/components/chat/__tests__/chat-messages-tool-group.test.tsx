@@ -93,11 +93,27 @@ describe('ChatMessages tool groups', () => {
 
     render(<ChatMessages messages={messages} loading />)
 
-    fireEvent.click(screen.getByRole('button', { name: /3 tools running/i }))
+    // The collapsed pill now shows the active tool (not "N tools running").
+    fireEvent.click(screen.getByRole('button', { name: /run_tests/i }))
     const group = screen.getByTestId('tool-group-list')
 
     expect(within(group).getAllByLabelText('Running')).toHaveLength(1)
     expect(within(group).getByText('run_tests').closest('div')?.textContent).toContain('run_tests')
+  })
+
+  it('shows the running tool + command in the collapsed pill', () => {
+    const messages: Message[] = [{
+      id: 'tool-1',
+      role: 'assistant',
+      content: 'Using Bash',
+      timestamp: 100,
+      toolCall: 'Bash',
+      toolInput: 'npm test',
+    }]
+
+    render(<ChatMessages messages={messages} loading />)
+
+    expect(screen.getByRole('button', { name: /Bash.*npm test/i })).toBeTruthy()
   })
 
   it('keeps a tool group active when a live block follows it', () => {
@@ -125,7 +141,7 @@ describe('ChatMessages tool groups', () => {
 
     render(<ChatMessages messages={messages} loading />)
 
-    fireEvent.click(screen.getByRole('button', { name: /1 tool running/i }))
+    fireEvent.click(screen.getByRole('button', { name: /file_edit/i }))
     expect(within(screen.getByTestId('tool-group-list')).getAllByLabelText('Running')).toHaveLength(1)
   })
 
@@ -140,7 +156,7 @@ describe('ChatMessages tool groups', () => {
 
     render(<ChatMessages messages={messages} loading />)
 
-    fireEvent.click(screen.getByRole('button', { name: /12 tools running/i }))
+    fireEvent.click(screen.getByRole('button', { name: /tool_12/i }))
     const group = screen.getByTestId('tool-group-list')
 
     expect(within(group).getByText('tool_12')).toBeTruthy()
