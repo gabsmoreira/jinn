@@ -18,10 +18,14 @@ import { AskUserQuestionAssembler } from "./ask-user-question.js";
 
 export type { PtyControlEvent } from "./pty-view-engine.js";
 
-// Tools the interactive PTY blocks. AskUserQuestion is intentionally allowed
-// (surfaced in chat); ExitPlanMode stays disabled. Single source of truth for
-// both spawn paths (buildInteractiveArgs and ensureIdleSpawn).
-export const DISALLOWED_TOOLS = ["ExitPlanMode"] as const;
+/** Tools the interactive PTY blocks. ExitPlanMode is always blocked. AskUserQuestion
+ *  is blocked only when interactive questions are disabled in config. Single source
+ *  of truth for both spawn paths (buildInteractiveArgs and ensureIdleSpawn). */
+export function disallowedTools(allowAskUserQuestion: boolean): string[] {
+  const tools = ["ExitPlanMode"];
+  if (!allowAskUserQuestion) tools.push("AskUserQuestion");
+  return tools;
+}
 
 interface InteractiveArgsOpts {
   prompt: string;
@@ -37,6 +41,8 @@ interface InteractiveArgsOpts {
    *  KEY is ignored by claude CLI ≥2.1.x, so this flag is the only path that
    *  actually lands it in the request `system` (and thus lets the SSE proxy tee). */
   appendSystemPrompt?: string;
+  /** Allow the AskUserQuestion tool. Default true; false adds it to --disallowedTools. */
+  allowAskUserQuestion?: boolean;
 }
 
 interface TranscriptUsage { inputTokens: number; outputTokens: number; cacheTokens: number; assistantTurns: number; }
@@ -200,7 +206,7 @@ export function buildInteractiveArgs(o: InteractiveArgsOpts): string[] {
   if (o.effortLevel && o.effortLevel !== "default") args.push("--effort", o.effortLevel);
   if (o.model) args.push("--model", o.model);
   args.push("--dangerously-skip-permissions");
-  args.push("--disallowedTools", ...DISALLOWED_TOOLS);
+  args.push("--disallowedTools", ...disallowedTools(o.allowAskUserQuestion ?? true));
   args.push("--settings", o.settingsPath);
   if (o.appendSystemPrompt) args.push("--append-system-prompt", o.appendSystemPrompt);
   if (o.cliFlags?.length) args.push(...o.cliFlags);

@@ -7,7 +7,7 @@ import { afterEach, describe, it, expect, vi } from "vitest";
 // focused and CI-portable.
 vi.mock("node-pty", () => ({ spawn: vi.fn() }));
 
-import { TurnResolver, buildInteractiveArgs, claudeHookToDeltas, sseEventToDeltas, pasteAndSubmit, DISALLOWED_TOOLS, InteractiveClaudeEngine } from "../claude-interactive.js";
+import { TurnResolver, buildInteractiveArgs, claudeHookToDeltas, sseEventToDeltas, pasteAndSubmit, disallowedTools, InteractiveClaudeEngine } from "../claude-interactive.js";
 import { MAIN_AGENT_SENTINEL } from "../sse-pty-proxy.js";
 import { buildPromptWithPlatformContext } from "../platform-context.js";
 import { AskUserQuestionAssembler } from "../ask-user-question.js";
@@ -209,20 +209,41 @@ describe("pasteAndSubmit", () => {
   });
 });
 
+describe("disallowedTools helper", () => {
+  it("blocks only ExitPlanMode when AskUserQuestion is allowed", () => {
+    const tools = disallowedTools(true);
+    expect(tools).toContain("ExitPlanMode");
+    expect(tools).not.toContain("AskUserQuestion");
+  });
+
+  it("also blocks AskUserQuestion when disallowed", () => {
+    const tools = disallowedTools(false);
+    expect(tools).toContain("ExitPlanMode");
+    expect(tools).toContain("AskUserQuestion");
+  });
+});
+
 describe("buildInteractiveArgs — disallowed tools", () => {
-  it("re-enables AskUserQuestion but keeps ExitPlanMode disabled", () => {
+  it("defaults to allowing AskUserQuestion (only ExitPlanMode blocked)", () => {
     const args = buildInteractiveArgs({ prompt: "hi", settingsPath: "/s.json" });
     const i = args.indexOf("--disallowedTools");
     expect(i).toBeGreaterThan(-1);
-    // The tokens immediately after --disallowedTools are the disallowed tool names.
-    const disallowed = args.slice(i + 1, i + 3);
-    expect(disallowed).toContain("ExitPlanMode");
+    const after = args.slice(i + 1);
+    expect(after).toContain("ExitPlanMode");
+    // AskUserQuestion must not appear before the next flag token.
+    const nextFlag = after.findIndex((a) => a.startsWith("--"));
+    const disallowed = nextFlag === -1 ? after : after.slice(0, nextFlag);
     expect(disallowed).not.toContain("AskUserQuestion");
   });
 
-  it("DISALLOWED_TOOLS constant enforces the contract: ExitPlanMode in, AskUserQuestion out", () => {
-    expect(DISALLOWED_TOOLS).toContain("ExitPlanMode");
-    expect(DISALLOWED_TOOLS).not.toContain("AskUserQuestion");
+  it("blocks AskUserQuestion when allowAskUserQuestion is false", () => {
+    const args = buildInteractiveArgs({ prompt: "hi", settingsPath: "/s.json", allowAskUserQuestion: false });
+    const i = args.indexOf("--disallowedTools");
+    const after = args.slice(i + 1);
+    const nextFlag = after.findIndex((a) => a.startsWith("--"));
+    const disallowed = nextFlag === -1 ? after : after.slice(0, nextFlag);
+    expect(disallowed).toContain("ExitPlanMode");
+    expect(disallowed).toContain("AskUserQuestion");
   });
 });
 
