@@ -29,6 +29,8 @@ export interface Message {
   media?: MediaAttachment[]
   toolCall?: string
   toolId?: string
+  /** Short summary of the tool's input/target (e.g. "npm test"), rendered as "Bash · npm test". */
+  toolInput?: string
   blocks?: ChatBlock[]
 }
 

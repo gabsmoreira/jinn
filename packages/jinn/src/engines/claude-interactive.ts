@@ -203,13 +203,28 @@ export function buildInteractiveArgs(o: InteractiveArgsOpts): string[] {
 }
 
 export function claudeHookToDeltas(h: Record<string, unknown>): StreamDelta[] {
-  if (h.hook_event_name !== "PostToolUse") return [];
   const toolName = typeof h.tool_name === "string" ? h.tool_name : undefined;
-  return [{
-    type: "tool_result",
-    content: String(h.tool_name ?? ""),
-    toolName,
-  }];
+  if (h.hook_event_name === "PreToolUse") {
+    // The SSE content_block_start already emitted the tool_use card (name + id);
+    // this carries the assembled input so the card can show the command/target
+    // (e.g. "Bash · npm test"). A distinct `tool_input` type so the web merges it
+    // into that card instead of rendering a duplicate.
+    const input = h.tool_input !== undefined ? JSON.stringify(h.tool_input).slice(0, 200) : undefined;
+    return [{
+      type: "tool_input",
+      content: String(h.tool_name ?? ""),
+      toolName,
+      ...(input !== undefined ? { input } : {}),
+    }];
+  }
+  if (h.hook_event_name === "PostToolUse") {
+    return [{
+      type: "tool_result",
+      content: String(h.tool_name ?? ""),
+      toolName,
+    }];
+  }
+  return [];
 }
 
 /**
@@ -684,6 +699,8 @@ export class InteractiveClaudeEngine implements InterruptibleEngine, PtyViewEngi
         // completion event because tools execute between assistant messages.
         if (h.hook_event_name === "PreToolUse") {
           entry.activeTools += 1;
+          // Stream the tool input so the chat card can show the command/target.
+          for (const delta of claudeHookToDeltas(h as Record<string, unknown>)) opts.onStream?.(delta);
         }
         if (h.hook_event_name === "PostToolUse") {
           entry.activeTools = Math.max(0, entry.activeTools - 1);

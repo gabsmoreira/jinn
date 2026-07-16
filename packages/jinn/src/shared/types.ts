@@ -1,4 +1,4 @@
-export type StreamDeltaType = "text" | "text_snapshot" | "tool_use" | "tool_result" | "status" | "error" | "context" | "block";
+export type StreamDeltaType = "text" | "text_snapshot" | "tool_use" | "tool_input" | "tool_result" | "status" | "error" | "context" | "block";
 
 export type ChatBlockType = "task-list";
 export type ChatBlockStatus = "queued" | "running" | "done" | "error";
