@@ -48,6 +48,7 @@ interface Config {
     maxDurationMinutes?: number
     maxCostUsd?: number
     interruptOnNewMessage?: boolean
+    interactiveQuestions?: boolean
     rateLimitStrategy?: "wait" | "fallback"
     fallbackEngine?: "codex"
   }
@@ -1102,6 +1103,25 @@ export default function SettingsPage() {
                   When enabled, sending a new message to a running session will stop the
                   current agent and start processing your new message immediately. When
                   disabled, messages are queued.
+                </div>
+
+                <div
+                  className="border-t border-[var(--separator)] mt-[var(--space-3)] pt-[var(--space-3)]"
+                />
+
+                <FieldRow label="Interactive Questions">
+                  <ToggleSwitch
+                    checked={config.sessions?.interactiveQuestions ?? true}
+                    onChange={(v) =>
+                      updateConfig(["sessions", "interactiveQuestions"], v)
+                    }
+                  />
+                </FieldRow>
+                <div
+                  className="text-[length:var(--text-caption1)] text-[var(--label-secondary)] mt-[4px]"
+                >
+                  When enabled, Claude can present multiple-choice questions as clickable
+                  options in chat. When disabled, it asks in plain text.
                 </div>
 
                 <div
