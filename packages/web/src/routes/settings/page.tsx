@@ -1121,7 +1121,8 @@ export default function SettingsPage() {
                   className="text-[length:var(--text-caption1)] text-[var(--label-secondary)] mt-[4px]"
                 >
                   When enabled, Claude can present multiple-choice questions as clickable
-                  options in chat. When disabled, it asks in plain text.
+                  options in chat. When disabled, it asks in plain text. Takes effect on
+                  the next session.
                 </div>
 
                 <div
