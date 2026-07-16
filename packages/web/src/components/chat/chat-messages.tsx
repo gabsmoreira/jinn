@@ -7,6 +7,7 @@ import { useStickToBottom } from '@/hooks/use-stick-to-bottom'
 import { useMessageTts, stopMessageTts } from './use-message-tts'
 import { ChatBlockInline, statusMark } from './chat-blocks'
 import { blockFallbackContent } from '@/lib/blocks'
+import { formatElapsed } from './format-elapsed'
 import { ChevronDown, Wrench } from 'lucide-react'
 
 /* ── Tool grouping ──────────────────────────────────────── */
@@ -107,6 +108,9 @@ function ToolGroup({
                 </span>
                 <span className="min-w-0 truncate text-[length:var(--text-footnote)] font-[var(--weight-medium)] text-[var(--text-primary)]">
                   {m.toolCall || `Tool ${index + 1}`}
+                  {m.toolInput ? (
+                    <span className="font-[var(--weight-regular)] text-[var(--text-tertiary)]"> · {m.toolInput}</span>
+                  ) : null}
                 </span>
               </div>
             )
@@ -1041,6 +1045,44 @@ export function ChatMessages({
     return -1
   }, [groupedMessages, loading])
 
+  // Live turn timer + per-turn "took N" stamp (Claude-Code style). Times from the
+  // moment the turn starts (loading true) and, on completion, records the duration
+  // against the turn's last assistant text message. UI-only/ephemeral.
+  const messagesRef = useRef(messages)
+  messagesRef.current = messages
+  const [elapsedMs, setElapsedMs] = useState(0)
+  const turnStartRef = useRef<number | null>(null)
+  const [turnDurations, setTurnDurations] = useState<Record<string, number>>({})
+  useEffect(() => {
+    if (loading) {
+      if (turnStartRef.current == null) turnStartRef.current = Date.now()
+      const tick = () => setElapsedMs(Date.now() - (turnStartRef.current ?? Date.now()))
+      tick()
+      const id = setInterval(tick, 1000)
+      return () => clearInterval(id)
+    }
+    if (turnStartRef.current != null) {
+      const dur = Date.now() - turnStartRef.current
+      turnStartRef.current = null
+      setElapsedMs(0)
+      if (dur >= 1000) {
+        const anchor = [...messagesRef.current].reverse().find((m) => m.role === 'assistant' && !m.toolCall)
+        if (anchor) setTurnDurations((prev) => ({ ...prev, [anchor.id]: dur }))
+      }
+    }
+  }, [loading])
+
+  // Current activity for the working indicator: the active tool (+command) if one
+  // is running, otherwise Responding (text streaming) / Thinking.
+  const activeTool = loading
+    ? [...messages].reverse().find((m) => m.role === 'assistant' && m.toolCall && !isToolDone(m))
+    : undefined
+  const activityLabel = activeTool
+    ? `${activeTool.toolCall}${activeTool.toolInput ? ` · ${activeTool.toolInput}` : ''}`
+    : streamingText
+      ? 'Responding'
+      : 'Thinking'
+
   // Stop any in-progress read-aloud when the chat view unmounts (navigation away).
   useEffect(() => () => stopMessageTts(), [])
 
@@ -1095,30 +1137,38 @@ export function ChatMessages({
             }
 
             const { msg, index: i } = item
+            const took = turnDurations[msg.id]
             return (
-              <MessageRow
-                key={msg.id || i}
-                msg={msg}
-                index={i}
-                messages={messages}
-                loading={loading}
-                onRetry={onRetry}
-              />
+              <React.Fragment key={msg.id || i}>
+                <MessageRow
+                  msg={msg}
+                  index={i}
+                  messages={messages}
+                  loading={loading}
+                  onRetry={onRetry}
+                />
+                {took ? (
+                  <div className="assistant-msg-row mt-0.5 text-[length:var(--text-caption2)] text-[var(--text-quaternary)] tabular-nums">
+                    took {formatElapsed(took)}
+                  </div>
+                ) : null}
+              </React.Fragment>
             )
           })}
 
           {/* Streaming message — shows text as it arrives, always re-renders */}
           {streamingText && <StreamingBubble streamingText={streamingText} />}
 
-          {/* Running indicator — pre-first-token only; once streamingText arrives the
-              caret carries the "live" signal, so suppress this to avoid a double cue. */}
-          {loading && messages.length > 0 && !streamingText && (
-            // Share the assistant text gutter (space-3 mobile / space-8 @lg) so the
-            // indicator lines up flush with the messages and tool cards.
+          {/* Working indicator — shown for the whole turn: current activity (active
+              tool + command, else Responding/Thinking) + live elapsed time. */}
+          {loading && (
             <div className="assistant-msg-row flex items-center gap-1.5 mt-[var(--space-1)]">
               <span className="w-1.5 h-1.5 rounded-full bg-[var(--accent)] animate-[jinn-pulse_1.4s_infinite] shrink-0" />
-              <span className="text-[length:var(--text-caption1)] text-[var(--text-tertiary)] font-[var(--weight-medium)]">
-                Thinking
+              <span className="min-w-0 truncate text-[length:var(--text-caption1)] text-[var(--text-tertiary)] font-[var(--weight-medium)]">
+                {activityLabel}
+              </span>
+              <span className="shrink-0 text-[length:var(--text-caption1)] text-[var(--text-quaternary)] tabular-nums">
+                {formatElapsed(elapsedMs)}
               </span>
             </div>
           )}
