@@ -7,6 +7,7 @@ import { logger } from "../shared/logger.js";
 import { JINN_HOME, CLAUDE_SETTINGS_DIR, HOOK_RELAY_SCRIPT, CLAUDE_LIMITS_DIR } from "../shared/paths.js";
 import { cleanupSessionSettings, writeSessionSettings } from "../shared/claude-settings.js";
 import { resolveBin } from "../shared/resolve-bin.js";
+import { loadConfig } from "../shared/config.js";
 import { PtyLifecycleManager, type PtyHandle } from "./pty-lifecycle.js";
 import { PtyStreamManager, createPtyHandle, setCapped } from "./pty-stream.js";
 import type { PtyControlEvent, PtyViewEngine, PtyIdleSpawnOpts } from "./pty-view-engine.js";
@@ -25,6 +26,16 @@ export function disallowedTools(allowAskUserQuestion: boolean): string[] {
   const tools = ["ExitPlanMode"];
   if (!allowAskUserQuestion) tools.push("AskUserQuestion");
   return tools;
+}
+
+/** Read the interactive-questions toggle from config. Defaults to true (feature on)
+ *  and never throws — if config is unreadable at spawn time, the feature stays on. */
+function askUserQuestionAllowed(): boolean {
+  try {
+    return loadConfig().sessions?.interactiveQuestions ?? true;
+  } catch {
+    return true;
+  }
 }
 
 interface InteractiveArgsOpts {
@@ -980,6 +991,7 @@ export class InteractiveClaudeEngine implements InterruptibleEngine, PtyViewEngi
       appendSystemPrompt: opts.systemPrompt
         ? `${opts.systemPrompt}\n\n${MAIN_AGENT_SENTINEL}`
         : MAIN_AGENT_SENTINEL,
+      allowAskUserQuestion: askUserQuestionAllowed(),
     });
     const { proxy, port } = await this.startProxy(jinnSessionId);
     const env = this.buildPtyEnv(port || undefined, jinnSessionId);
@@ -1017,7 +1029,7 @@ export class InteractiveClaudeEngine implements InterruptibleEngine, PtyViewEngi
     const args: string[] = [
       "--chrome",
       "--dangerously-skip-permissions",
-      "--disallowedTools", ...DISALLOWED_TOOLS,
+      "--disallowedTools", ...disallowedTools(askUserQuestionAllowed()),
       "--settings", settingsPath,
     ];
     if (opts.engineSessionId) args.unshift("--resume", opts.engineSessionId);
