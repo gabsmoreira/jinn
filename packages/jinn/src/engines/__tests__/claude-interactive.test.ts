@@ -16,12 +16,26 @@ afterEach(() => {
 });
 
 describe("claudeHookToDeltas", () => {
-  it("does not emit a duplicate tool_use for PreToolUse", () => {
+  it("emits a tool_input (NOT a second tool_use) for PreToolUse, carrying the command", () => {
+    // The SSE content_block_start already created the tool card; PreToolUse adds
+    // the input so the card can show "Bash · printf ok" — a distinct delta type so
+    // it merges into that card instead of creating a duplicate.
     expect(claudeHookToDeltas({
       hook_event_name: "PreToolUse",
       tool_name: "Bash",
       tool_input: { command: "printf ok" },
-    })).toEqual([]);
+    })).toEqual([{
+      type: "tool_input",
+      content: "Bash",
+      toolName: "Bash",
+      input: JSON.stringify({ command: "printf ok" }),
+    }]);
+  });
+
+  it("emits a tool_input with no input field when PreToolUse has no tool_input", () => {
+    expect(claudeHookToDeltas({ hook_event_name: "PreToolUse", tool_name: "Read" })).toEqual([
+      { type: "tool_input", content: "Read", toolName: "Read" },
+    ]);
   });
 
   it("emits a tool_result for PostToolUse", () => {

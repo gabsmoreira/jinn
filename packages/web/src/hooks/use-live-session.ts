@@ -28,6 +28,7 @@ import {
   reconcileMessages,
 } from '@/lib/conversations'
 import { applyBlockEnvelopeToMessages, isBlockEnvelope, isChatBlock } from '@/lib/blocks'
+import { summarizeToolInput } from '@/components/chat/tool-summary'
 
 type Listener = (event: string, payload: unknown) => void
 
@@ -425,6 +426,28 @@ export function useLiveSession(
             ]
             return updated
           })
+        } else if (deltaType === 'tool_input') {
+          // PreToolUse-sourced: attach the command/target to the matching active
+          // tool card (created earlier by content_block_start) so it shows
+          // "Bash · npm test". Match the most recent unfinished card for this tool.
+          const toolName = String(p.toolName || '')
+          const summary = summarizeToolInput(toolName, typeof p.input === 'string' ? p.input : undefined)
+          if (summary) {
+            setMessages((prev) => {
+              for (let i = prev.length - 1; i >= 0; i--) {
+                const m = prev[i]
+                if (
+                  m.role === 'assistant' && m.toolCall && !m.toolInput &&
+                  !m.content.startsWith('Used ') && (!toolName || m.toolCall === toolName)
+                ) {
+                  const updated = [...prev]
+                  updated[i] = { ...m, toolInput: summary }
+                  return updated
+                }
+              }
+              return prev
+            })
+          }
         } else if (deltaType === 'tool_result') {
           setMessages((prev) => {
             const updated = [...prev]
