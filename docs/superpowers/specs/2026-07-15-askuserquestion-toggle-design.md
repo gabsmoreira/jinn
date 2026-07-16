@@ -89,7 +89,7 @@ I/O) localizes the change — no new plumbing through `EngineRunOpts` or the `pt
 call site. The value is a global knob, not per-session, so a per-spawn read is
 correct and cheap.
 
-### 3. Settings UI — `packages/jinn/src/routes/settings/page.tsx`
+### 3. Settings UI — `packages/web/src/routes/settings/page.tsx`
 
 Add a `ToggleSwitch` row to the existing **Sessions** section, reusing the
 `FieldRow` + description pattern already used by `interruptOnNewMessage`:
