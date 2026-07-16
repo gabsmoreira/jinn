@@ -618,6 +618,8 @@ export interface JinnConfig {
     maxDurationMinutes?: number;
     maxCostUsd?: number;
     interruptOnNewMessage?: boolean;
+    /** Allow Claude's interactive AskUserQuestion tool (clickable chat options). Default: true. */
+    interactiveQuestions?: boolean;
     /** What to do when Claude hits a usage/rate limit. Default: "wait" (no automatic engine switch). Set to "fallback" to opt in to switching to Codex while Claude resets. */
     rateLimitStrategy?: "wait" | "fallback";
     /** Engine to use when rateLimitStrategy="fallback". Default: "codex" */
