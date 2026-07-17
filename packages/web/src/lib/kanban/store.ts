@@ -1,11 +1,15 @@
 
 import type { KanbanTicket, TicketStatus, TicketPriority, WorkState } from './types'
+import { LEGACY_STATUS_MIGRATION } from './types'
 
 export type KanbanStore = Record<string, KanbanTicket>
 
 const STORAGE_KEY = 'jinn-kanban'
 
-const VALID_STATUSES = new Set<TicketStatus>(['backlog', 'todo', 'in-progress', 'review', 'done'])
+const VALID_STATUSES = new Set<TicketStatus>([
+  'backlog', 'ready', 'backlog-week-goal', 'in-progress', 'in-review',
+  'backlog-testing', 'testing', 'ready-to-release', 'done',
+])
 const VALID_PRIORITIES = new Set<TicketPriority>(['low', 'medium', 'high'])
 const VALID_WORK_STATES = new Set<WorkState>(['idle', 'starting', 'working', 'done', 'failed'])
 
@@ -14,7 +18,10 @@ function sanitizeTicket(id: string, raw: Record<string, unknown>): KanbanTicket 
   // Require essential fields
   if (typeof raw.title !== 'string' || !raw.title) return null
 
-  const status = (VALID_STATUSES.has(raw.status as TicketStatus) ? raw.status : 'backlog') as TicketStatus
+  const rawStatus = raw.status as string
+  const status: TicketStatus = VALID_STATUSES.has(rawStatus as TicketStatus)
+    ? (rawStatus as TicketStatus)
+    : (LEGACY_STATUS_MIGRATION[rawStatus] ?? 'backlog')
   const priority = (VALID_PRIORITIES.has(raw.priority as TicketPriority) ? raw.priority : 'medium') as TicketPriority
   const workState = (VALID_WORK_STATES.has(raw.workState as WorkState) ? raw.workState : 'idle') as WorkState
 
@@ -30,6 +37,8 @@ function sanitizeTicket(id: string, raw: Record<string, unknown>): KanbanTicket 
     createdAt: typeof raw.createdAt === 'number' ? raw.createdAt : 0,
     updatedAt: typeof raw.updatedAt === 'number' ? raw.updatedAt : (typeof raw.createdAt === 'number' ? raw.createdAt : 0),
     departmentId: typeof raw.departmentId === 'string' ? raw.departmentId : null,
+    githubItemId: typeof raw.githubItemId === 'string' ? raw.githubItemId : undefined,
+    githubSyncedAt: typeof raw.githubSyncedAt === 'number' ? raw.githubSyncedAt : undefined,
   }
 }
 
@@ -46,9 +55,9 @@ export function loadTickets(): KanbanStore {
       if (!ticket) continue // Skip corrupted entries
 
       // Recover tickets stuck mid-work (e.g. page reload during streaming).
-      // Reset them to todo/idle so they can be re-triggered.
+      // Reset them to ready/idle so they can be re-triggered.
       if (ticket.workState === 'working' || ticket.workState === 'starting') {
-        ticket.status = 'todo'
+        ticket.status = 'ready'
         ticket.workState = 'idle'
       }
 
