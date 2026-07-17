@@ -47,21 +47,21 @@ export function createGithubClient(token: string, fetchImpl: FetchImpl = fetch) 
       const q = ref.ownerType === "org"
         ? `query($login:String!,$number:Int!){organization(login:$login){projectV2(number:$number){id}}}`
         : `query($login:String!,$number:Int!){user(login:$login){projectV2(number:$number){id}}}`
-      const d = await gql<{ organization?: { projectV2: { id: string } }; user?: { projectV2: { id: string } } }>(
+      const d = await gql<{ organization?: { projectV2: { id: string } | null }; user?: { projectV2: { id: string } | null } }>(
         q, { login: ref.login, number: ref.number },
       )
-      const id = d.organization?.projectV2.id ?? d.user?.projectV2.id
+      const id = d.organization?.projectV2?.id ?? d.user?.projectV2?.id
       if (!id) throw new Error("Project not found or PAT lacks access")
       projectId = id
     }
     const detail = await gql<{ node: {
       title: string
       field: { id: string; options: { id: string; name: string }[] } | null
-    } }>(
+    } | null }>(
       `query($id:ID!){node(id:$id){... on ProjectV2{title field(name:"Status"){... on ProjectV2SingleSelectField{id options{id name}}}}}}`,
       { id: projectId },
     )
-    if (!detail.node.field) throw new Error('Project has no "Status" single-select field')
+    if (!detail.node?.field) throw new Error('Project has no "Status" single-select field')
     return {
       projectId,
       title: detail.node.title,
