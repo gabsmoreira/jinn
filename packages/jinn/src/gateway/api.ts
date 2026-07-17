@@ -79,7 +79,7 @@ import { readJsonBody, readBodyRaw } from "./http-helpers.js";
 import { readJsonlTail } from "./jsonl-tail.js";
 import { createGithubClient } from "./github-sync/gql-client.js";
 import { buildStatusOptionIds } from "./github-sync/connect.js";
-import { loadSyncState } from "./github-sync/sync-state.js";
+import { loadSyncState, resetSyncState } from "./github-sync/sync-state.js";
 import { syncNow as githubSyncNow, notifyBoardChange } from "./github-sync/engine.js";
 import { resultAlreadyInStreamedBlocks, shouldPreserveStreamedBlocks } from "./streamed-blocks.js";
 import { notifyParentSession, notifyRateLimited, notifyRateLimitResumed, notifyDiscordChannel, notifyAttachedTalkSessions } from "../sessions/callbacks.js";
@@ -1878,6 +1878,10 @@ export async function handleApiRequest(
         pollIntervalSec: 45, enabled: true,
       } };
       saveConfigAtomic(merged);
+      // A fresh connection must start with clean delete-tracking: linkedItemIds/
+      // deletedItemIds from a prior project would make the engine's remote-only
+      // pass see every item in the new project as deleted locally and delete it.
+      resetSyncState();
       context.reloadConfig?.();
       context.emit("github-sync:reloaded", {});
       return json(res, { status: "ok", projectTitle: resolved.title, unmatchedColumns, unmatchedGithub });
@@ -1893,12 +1897,18 @@ export async function handleApiRequest(
       const patch: Record<string, unknown> = {};
       if (typeof body.pollIntervalSec === "number") patch.pollIntervalSec = Math.max(15, body.pollIntervalSec);
       if (typeof body.enabled === "boolean") patch.enabled = body.enabled;
+      const departmentChanged = typeof body.department === "string" && body.department !== g.department;
       if (typeof body.department === "string") patch.department = body.department;
       const existing = readConfigYaml();
       // patch carries only primitives (pollIntervalSec/enabled/department), never
       // token — a plain spread is safe and needs no REDACTED_SECRET round-trip.
       const merged = { ...existing, github: { ...(existing.github as object), ...patch } };
       saveConfigAtomic(merged);
+      // Only reset sync-state when the department actually changes — linkedItemIds
+      // are scoped to a department's slice of the board; switching departments
+      // without resetting would make the engine delete the new department's items
+      // it hasn't seen yet. pollInterval/enabled-only changes don't need a reset.
+      if (departmentChanged) resetSyncState();
       context.reloadConfig?.();
       context.emit("github-sync:reloaded", {});
       return json(res, { status: "ok" });

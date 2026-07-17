@@ -88,53 +88,6 @@ export default function KanbanPage() {
   const [filterEmployeeId, setFilterEmployeeId] = useState<string | null>(null)
   const [deleteConfirm, setDeleteConfirm] = useState<KanbanTicket | null>(null)
 
-  /** Sync tickets to the gateway API, grouped by department */
-  const syncToApi = useCallback(async (store: KanbanStore) => {
-    // Group tickets by department
-    const byDept: Record<string, Array<{
-      id: string
-      title: string
-      description?: string
-      status: string
-      priority: string
-      assignee?: string
-      createdAt: string
-      updatedAt: string
-      githubItemId?: string
-      githubSyncedAt?: number
-    }>> = {}
-
-    for (const ticket of Object.values(store)) {
-      const dept = ticket.department
-      if (!dept) continue
-      if (!byDept[dept]) byDept[dept] = []
-      byDept[dept].push({
-        id: ticket.id,
-        title: ticket.title,
-        description: ticket.description || undefined,
-        status: ticket.status,
-        priority: ticket.priority,
-        assignee: ticket.assigneeId || undefined,
-        createdAt: new Date(ticket.createdAt).toISOString(),
-        updatedAt: new Date(ticket.updatedAt).toISOString(),
-        githubItemId: ticket.githubItemId,
-        githubSyncedAt: ticket.githubSyncedAt,
-      })
-    }
-
-    // PUT each department's board (including empty arrays to clear deleted tickets)
-    const allDepts = new Set([...Object.keys(byDept), ...departments])
-    const promises = Array.from(allDepts).map(async (dept) => {
-      try {
-        await api.updateDepartmentBoard(dept, byDept[dept] || [])
-      } catch {
-        // API unavailable — localStorage is the fallback
-      }
-    })
-
-    await Promise.all(promises)
-  }, [departments])
-
   const loadData = useCallback(() => {
     setLoading(true)
     setError(null)

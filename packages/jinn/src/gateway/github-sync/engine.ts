@@ -34,6 +34,13 @@ export async function reconcile(deps: ReconcileDeps): Promise<ReconcileSummary> 
   // succeeded* so far. This is what makes persisting on error safe: a draft
   // created on GitHub before a later call throws still gets its githubItemId
   // written to disk, so the next poll won't recreate it.
+  // Accepted v1 lost-update race: readBoard() snapshots board.json here, then this
+  // function does network I/O (potentially many awaits) before writeBoard() persists
+  // `working` in persist(). A concurrent web PUT to board.json during that window can
+  // be silently overwritten by this stale snapshot. Acceptable for single-user v1
+  // polling — LWW re-converges on the next edit/reconcile. A future guard would
+  // compare board.json's mtime immediately before writeBoard() and abort/retry if it
+  // changed since this read.
   const local = readBoard(github.department)
   const working = new Map(local.map((item) => [item.id, item]))
   const newTombstones = [...state.deletedItemIds]
@@ -69,6 +76,10 @@ export async function reconcile(deps: ReconcileDeps): Promise<ReconcileSummary> 
         remoteById.delete(item.githubItemId) // consumed; leftover = remote-only
         const decision = resolveConflict(item, match, item.githubSyncedAt ?? 0)
         if (decision === "push") {
+          // Note: GitHub stamps its own updatedAt on the item *after* nowIso (the
+          // request completes later than this timestamp), so on the next poll this
+          // pushed item will look remotely-newer and get pulled back once. That pull
+          // is idempotent (same data) and the pair settles within one extra cycle.
           if (match.draftId) await client.updateDraft(match.draftId, item.title, item.description ?? "")
           const optId = statusOptionIdForItem(item, optionIds)
           if (optId && fieldId) await client.setStatus(github.projectId, item.githubItemId, fieldId, optId)

@@ -460,7 +460,7 @@ function GithubSyncPanel() {
       .getGithubSyncStatus()
       .then((s) => {
         setStatus(s)
-        setPollInterval(String(s.pollIntervalSec ?? 60))
+        setPollInterval(String(s.pollIntervalSec ?? 45))
         if (s.department) setDepartment(s.department)
       })
       .catch((err) => {
@@ -468,7 +468,7 @@ function GithubSyncPanel() {
         // instead of disappearing entirely when the initial status load fails.
         setStatus((prev) => prev ?? {
           connected: false, enabled: false, projectTitle: null,
-          department: null, pollIntervalSec: 60, lastPollAt: null, lastError: null,
+          department: null, pollIntervalSec: 45, lastPollAt: null, lastError: null,
         })
         setNotice({ type: "error", message: err instanceof Error ? err.message : String(err) })
       })
@@ -522,7 +522,7 @@ function GithubSyncPanel() {
   }
 
   async function handlePollIntervalBlur() {
-    const n = Math.max(15, Number(pollInterval) || 60)
+    const n = Math.max(15, Number(pollInterval) || 45)
     setPollInterval(String(n))
     if (status && n === status.pollIntervalSec) return
     setBusy(true)

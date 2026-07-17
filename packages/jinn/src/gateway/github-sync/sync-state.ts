@@ -42,3 +42,15 @@ export function saveSyncState(state: SyncState): void {
   fs.writeFileSync(tmp, JSON.stringify(state, null, 2) + "\n", "utf-8")
   fs.renameSync(tmp, KANBAN_SYNC_STATE)
 }
+
+/**
+ * Resets sync-state to its defaults. Must be called on (re)connect and on
+ * department change: linkedItemIds/deletedItemIds are scoped to whichever
+ * GitHub Project the engine was last reconciling against. Carrying stale
+ * linkedItemIds into a new connection/department would make the engine's
+ * remote-only pass treat every item in the new board as "previously linked
+ * but now absent locally" and delete it.
+ */
+export function resetSyncState(): void {
+  saveSyncState(defaults())
+}

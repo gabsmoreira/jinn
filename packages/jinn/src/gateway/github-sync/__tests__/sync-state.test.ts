@@ -32,4 +32,15 @@ describe("sync-state", () => {
       linkedItemIds: ["a"], deletedItemIds: ["b"], lastPollAt: 5, lastError: "x",
     })
   })
+  it("resetSyncState clears a populated state back to defaults", async () => {
+    const { loadSyncState, saveSyncState, resetSyncState } = await import("../sync-state.js")
+    saveSyncState({ linkedItemIds: ["a", "b"], deletedItemIds: ["c"], lastPollAt: 123, lastError: "oops" })
+    expect(loadSyncState()).toEqual({
+      linkedItemIds: ["a", "b"], deletedItemIds: ["c"], lastPollAt: 123, lastError: "oops",
+    })
+    resetSyncState()
+    expect(loadSyncState()).toEqual({
+      linkedItemIds: [], deletedItemIds: [], lastPollAt: null, lastError: null,
+    })
+  })
 })
