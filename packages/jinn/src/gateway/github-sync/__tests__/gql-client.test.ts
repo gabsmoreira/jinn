@@ -25,7 +25,7 @@ describe("createGithubClient.listItems", () => {
           pageInfo: { hasNextPage: true, endCursor: "c1" },
           nodes: [{
             id: "PVTI_1", updatedAt: "2026-01-02T00:00:00Z",
-            content: { id: "DI_1", title: "A", body: "ba" },
+            content: { id: "DI_1", title: "A", body: "ba", assignees: { nodes: [{ login: "octocat" }, { login: "hubber" }] } },
             fieldValueByName: { optionId: "opt_ip", name: "In progress" },
           }],
         } } },
@@ -50,8 +50,9 @@ describe("createGithubClient.listItems", () => {
     expect(items).toHaveLength(2)
     expect(items[0]).toMatchObject({
       itemId: "PVTI_1", draftId: "DI_1", title: "A", body: "ba", statusOptionId: "opt_ip",
+      assignee: "octocat, hubber",
     })
-    expect(items[1]).toMatchObject({ itemId: "PVTI_2", statusOptionId: null })
+    expect(items[1]).toMatchObject({ itemId: "PVTI_2", statusOptionId: null, assignee: null })
     expect(fetchImpl).toHaveBeenCalledTimes(2)
   })
 

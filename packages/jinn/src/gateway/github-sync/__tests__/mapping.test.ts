@@ -14,7 +14,7 @@ const baseItem: BoardItem = {
 }
 const baseRemote: RemoteItem = {
   itemId: "PVTI_1", draftId: "DI_1", title: "T", body: "body",
-  statusOptionId: "opt_ip", updatedAtMs: msOf("2026-01-02T00:00:00.000Z"),
+  statusOptionId: "opt_ip", updatedAtMs: msOf("2026-01-02T00:00:00.000Z"), assignee: null,
 }
 
 describe("mapping", () => {
@@ -56,13 +56,23 @@ describe("mapping", () => {
     expect(out.updatedAt).toBe("2026-02-01T00:00:00.000Z")
     expect(out.id).toBe("t1")
   })
-  it("remoteToNewItem builds a fresh backlog-fallback item", () => {
-    const remote = { ...baseRemote, statusOptionId: "opt_weird" }
+  it("applyRemoteToItem surfaces the GitHub assignee but never wipes a local one", () => {
+    const noAssignee = { ...baseItem, assignee: "employee-alice" }
+    // GitHub has an assignee → it wins (display-only source of truth)
+    const withRemote = applyRemoteToItem(noAssignee, { ...baseRemote, assignee: "octocat" }, OPTS, "2026-02-01T00:00:00.000Z")
+    expect(withRemote.assignee).toBe("octocat")
+    // GitHub has none → keep the existing local assignee rather than clearing it
+    const withoutRemote = applyRemoteToItem(noAssignee, { ...baseRemote, assignee: null }, OPTS, "2026-02-01T00:00:00.000Z")
+    expect(withoutRemote.assignee).toBe("employee-alice")
+  })
+  it("remoteToNewItem builds a fresh backlog-fallback item and carries the assignee", () => {
+    const remote = { ...baseRemote, statusOptionId: "opt_weird", assignee: "octocat" }
     const out = remoteToNewItem(remote, OPTS, "newid", "2026-02-01T00:00:00.000Z")
     expect(out.id).toBe("newid")
     expect(out.status).toBe("backlog")
     expect(out.githubItemId).toBe("PVTI_1")
     expect(out.priority).toBe("medium")
     expect(out.githubSyncedAt).toBe(msOf("2026-02-01T00:00:00.000Z"))
+    expect(out.assignee).toBe("octocat")
   })
 })

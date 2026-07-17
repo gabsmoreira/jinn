@@ -18,6 +18,8 @@ export interface RemoteItem {
   body: string
   statusOptionId: string | null
   updatedAtMs: number
+  /** Comma-joined GitHub assignee login(s) for display in Jinn; null if unassigned. Read-only (never pushed). */
+  assignee: string | null
 }
 
 export interface ReconcileSummary {

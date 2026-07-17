@@ -80,11 +80,11 @@ export function createGithubClient(token: string, fetchImpl: FetchImpl = fetch) 
         nodes: Array<{
           id: string
           updatedAt: string
-          content: { id: string; title: string; body: string | null } | null
+          content: { id: string; title: string; body: string | null; assignees?: { nodes: Array<{ login: string }> } } | null
           fieldValueByName: { optionId: string; name: string } | null
         }>
       } } } = await gql(
-        `query($id:ID!,$cursor:String){node(id:$id){... on ProjectV2{items(first:100,after:$cursor){pageInfo{hasNextPage endCursor}nodes{id updatedAt content{... on DraftIssue{id title body}}fieldValueByName(name:"Status"){... on ProjectV2ItemFieldSingleSelectValue{optionId name}}}}}}}`,
+        `query($id:ID!,$cursor:String){node(id:$id){... on ProjectV2{items(first:100,after:$cursor){pageInfo{hasNextPage endCursor}nodes{id updatedAt content{... on DraftIssue{id title body assignees(first:10){nodes{login}}}}fieldValueByName(name:"Status"){... on ProjectV2ItemFieldSingleSelectValue{optionId name}}}}}}}`,
         { id: projectId, cursor },
       )
       const items = d.node.items
@@ -98,6 +98,7 @@ export function createGithubClient(token: string, fetchImpl: FetchImpl = fetch) 
           body: n.content.body ?? "",
           statusOptionId: n.fieldValueByName?.optionId ?? null,
           updatedAtMs: Date.parse(n.updatedAt) || 0,
+          assignee: n.content.assignees?.nodes.map((a) => a.login).join(", ") || null,
         })
       }
       if (!items.pageInfo.hasNextPage) break

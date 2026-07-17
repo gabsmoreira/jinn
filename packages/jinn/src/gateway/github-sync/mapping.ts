@@ -49,6 +49,9 @@ export function applyRemoteToItem(
     title: remote.title,
     description: remote.body,
     status: slugForOptionId(remote.statusOptionId, statusOptionIds),
+    // Display-only GitHub → Jinn: surface the GitHub assignee when present, but
+    // don't wipe an existing local assignee just because GitHub has none.
+    assignee: remote.assignee ?? item.assignee,
     updatedAt: nowIso,
     githubSyncedAt: msOf(nowIso),
   }
@@ -66,6 +69,7 @@ export function remoteToNewItem(
     description: remote.body,
     status: slugForOptionId(remote.statusOptionId, statusOptionIds),
     priority: "medium",
+    assignee: remote.assignee ?? undefined,
     createdAt: nowIso,
     updatedAt: nowIso,
     githubItemId: remote.itemId,
