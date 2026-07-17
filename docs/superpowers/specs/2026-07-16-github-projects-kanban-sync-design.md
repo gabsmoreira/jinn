@@ -133,12 +133,21 @@ also perform the old→new status migration described under "Columns".
 
 ```ts
 {
-  pendingDeletes: string[]    // GitHub item ids deleted locally, not yet on GitHub (crash-safe retry)
-  deletedItemIds: string[]    // tombstones: GitHub items whose Jinn ticket was deleted (don't re-import)
+  linkedItemIds: string[]     // GitHub item ids linked to a local ticket as of the last reconcile.
+                              //   Lets the next pass tell a Jinn-side delete (id was linked, now absent
+                              //   locally) apart from a genuinely new remote item (unknown id).
+  deletedItemIds: string[]    // tombstones: GitHub items deleted due to a local delete (don't re-import)
   lastPollAt: number | null
   lastError: string | null
 }
 ```
+
+**Delete detection.** A remote item that is *previously linked* but no longer on any local
+ticket is a Jinn-side delete → delete it on GitHub + tombstone. A linked local ticket whose
+id is absent from the remote set is a GitHub-side delete → remove it locally. An unknown
+remote id is a genuine import. A crash between the GitHub delete and the state write
+self-heals: next poll the item is still remote + previously-linked, so the delete retries
+idempotently.
 
 **Why last-write-wins needs no extra storage:** each side carries a modified timestamp —
 Jinn's `updatedAt` and the GitHub item `updatedAt`. On reconcile, compare each against the
@@ -163,8 +172,9 @@ the poll loop (mirrors the cron scheduler wiring). Config change → stop, resta
    - `localChanged = updatedAt > githubSyncedAt`; `remoteChanged = remoteUpdatedAt > githubSyncedAt`.
    - only local → push; only remote → apply; both → newer wins whole-ticket + log; neither → skip.
    - status resolved via `statusOptionIds` (slug ↔ option id).
-4. DELETES: ticket gone locally (had id) → `deleteItem` + tombstone; linked id absent from
-   remote → delete local ticket. `pendingDeletes` makes it crash-safe.
+4. DELETES: a previously-linked remote id absent from the local board → `deleteItem` +
+   tombstone; a linked local ticket absent from remote → delete local ticket. `linkedItemIds`
+   from the prior pass makes both directions distinguishable and crash-safe.
 5. WRITE: persist `board.json` (same path the API uses; emit `board:updated` so open clients
    refresh), then save `sync-state.json` with `lastPollAt`.
 
