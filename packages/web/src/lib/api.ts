@@ -360,6 +360,22 @@ export const api = {
     get<Array<{ event: string; payload: unknown; ts: number }>>("/api/activity"),
   updateDepartmentBoard: (name: string, data: unknown) =>
     put<Record<string, unknown>>(`/api/org/departments/${name}/board`, data),
+  getGithubSyncStatus: () =>
+    get<{
+      connected: boolean; enabled: boolean; projectTitle: string | null;
+      department: string | null; pollIntervalSec: number;
+      lastPollAt: number | null; lastError: string | null;
+    }>("/api/kanban/github/status"),
+  connectGithubSync: (body: { token: string; projectUrlOrId: string; department: string }) =>
+    post<{ status: string; projectTitle: string; unmatchedColumns: string[]; unmatchedGithub: string[] }>(
+      "/api/kanban/github/connect", body),
+  updateGithubSyncConfig: (body: { pollIntervalSec?: number; enabled?: boolean; department?: string }) =>
+    put<{ status: string }>("/api/kanban/github/config", body),
+  syncGithubNow: () =>
+    post<{ created: number; updated: number; imported: number; deleted: number; error?: string }>(
+      "/api/kanban/github/sync-now", {}),
+  disconnectGithubSync: () =>
+    post<{ status: string }>("/api/kanban/github/disconnect", {}),
   sttStatus: () =>
     get<{ available: boolean; model: string | null; downloading: boolean; progress: number; languages: string[] }>("/api/stt/status"),
   sttDownload: () =>
