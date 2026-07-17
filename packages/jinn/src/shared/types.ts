@@ -662,4 +662,23 @@ export interface JinnConfig {
     };
   };
   remotes?: Record<string, { url: string; label?: string; token?: string }>;
+  /** GitHub Projects v2 kanban sync. Absent = feature off. */
+  github?: {
+    /** Fine-grained PAT (Projects read/write). Redacted in GET /api/config. */
+    token: string
+    /** ProjectV2 node id (PVT_...), resolved at connect time. */
+    projectId: string
+    /** Human label for the settings UI, e.g. "Boldr / Roadmap". */
+    projectTitle?: string
+    /** Department whose board.json syncs to the Project (1:1). */
+    department: string
+    /** Resolved GitHub Status single-select field node id. */
+    statusFieldId?: string
+    /** TicketStatus slug → GitHub Status option id, resolved at connect. */
+    statusOptionIds?: Record<string, string>
+    /** Poll interval seconds (default 45, floor 15). */
+    pollIntervalSec?: number
+    /** Master on/off. false = engine never starts. */
+    enabled?: boolean
+  }
 }

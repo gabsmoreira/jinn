@@ -1790,6 +1790,7 @@ export async function handleApiRequest(
         "talk",
         "skills",
         "remotes",
+        "github",
       ];
       const unknownKeys = Object.keys(body).filter((k) => !KNOWN_KEYS.includes(k));
       if (unknownKeys.length > 0) {
