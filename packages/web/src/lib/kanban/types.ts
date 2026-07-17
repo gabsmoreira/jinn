@@ -42,7 +42,7 @@ export interface KanbanColumn {
 export const COLUMNS: KanbanColumn[] = [
   { id: 'backlog', title: 'Backlog' },
   { id: 'ready', title: 'Ready' },
-  { id: 'backlog-week-goal', title: 'Backlog | Week Goal' },
+  { id: 'backlog-week-goal', title: 'Backlog | Week Goal (Onboarding Offline)' },
   { id: 'in-progress', title: 'In progress' },
   { id: 'in-review', title: 'In review' },
   { id: 'backlog-testing', title: 'Backlog | Testing' },

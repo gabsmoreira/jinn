@@ -39,7 +39,7 @@ matches a GitHub Status option exactly** (the string used for name-based sync ma
 |---|---|---|
 | 1 | Backlog | `backlog` |
 | 2 | Ready | `ready` |
-| 3 | Backlog \| Week Goal | `backlog-week-goal` |
+| 3 | Backlog \| Week Goal (Onboarding Offline) | `backlog-week-goal` |
 | 4 | In progress | `in-progress` |
 | 5 | In review | `in-review` |
 | 6 | Backlog \| Testing | `backlog-testing` |

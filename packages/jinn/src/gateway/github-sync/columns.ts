@@ -6,7 +6,7 @@
 export const SLUG_TO_GITHUB_NAME: Record<string, string> = {
   "backlog": "Backlog",
   "ready": "Ready",
-  "backlog-week-goal": "Backlog | Week Goal",
+  "backlog-week-goal": "Backlog | Week Goal (Onboarding Offline)",
   "in-progress": "In progress",
   "in-review": "In review",
   "backlog-testing": "Backlog | Testing",

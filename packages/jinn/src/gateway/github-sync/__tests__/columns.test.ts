@@ -9,7 +9,7 @@ describe("columns", () => {
     ])
   })
   it("maps slug to exact GitHub name", () => {
-    expect(SLUG_TO_GITHUB_NAME["backlog-week-goal"]).toBe("Backlog | Week Goal")
+    expect(SLUG_TO_GITHUB_NAME["backlog-week-goal"]).toBe("Backlog | Week Goal (Onboarding Offline)")
     expect(SLUG_TO_GITHUB_NAME["in-progress"]).toBe("In progress")
   })
   it("resolves GitHub name to slug case-insensitively", () => {

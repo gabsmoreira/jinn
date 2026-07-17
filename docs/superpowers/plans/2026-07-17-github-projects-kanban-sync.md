@@ -11,7 +11,7 @@
 ## Global Constraints
 
 - **ESM imports:** all `packages/jinn` and `packages/web` imports use `.js` extensions (e.g. `import { foo } from "./bar.js"`).
-- **Columns are a fixed ordered set of 9**, display name = GitHub Status option name (verbatim): `Backlog`, `Ready`, `Backlog | Week Goal`, `In progress`, `In review`, `Backlog | Testing`, `Testing`, `Ready to release`, `Done`. Slugs: `backlog`, `ready`, `backlog-week-goal`, `in-progress`, `in-review`, `backlog-testing`, `testing`, `ready-to-release`, `done`.
+- **Columns are a fixed ordered set of 9**, display name = GitHub Status option name (verbatim): `Backlog`, `Ready`, `Backlog | Week Goal (Onboarding Offline)`, `In progress`, `In review`, `Backlog | Testing`, `Testing`, `Ready to release`, `Done`. Slugs: `backlog`, `ready`, `backlog-week-goal`, `in-progress`, `in-review`, `backlog-testing`, `testing`, `ready-to-release`, `done`.
 - **Secrets:** the PAT lives under a config key literally named `token`; `isSensitiveConfigKey()` already redacts it in `GET /api/config` — never add a differently-named token field and never log the token.
 - **Atomic disk writes:** JSON stores use tmp-file + `renameSync` (mirror `cron/jobs.ts`); config writes go through `saveConfigAtomic`.
 - **board.json item shape (on-disk wire contract):** `{ id: string, title: string, description?: string, status: string, priority: string, assignee?: string, createdAt: string /*ISO*/, updatedAt: string /*ISO*/, githubItemId?: string, githubSyncedAt?: number /*ms*/ }`.
