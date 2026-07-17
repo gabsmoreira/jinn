@@ -80,7 +80,7 @@ import { readJsonlTail } from "./jsonl-tail.js";
 import { createGithubClient } from "./github-sync/gql-client.js";
 import { buildStatusOptionIds } from "./github-sync/connect.js";
 import { loadSyncState } from "./github-sync/sync-state.js";
-import { syncNow as githubSyncNow } from "./github-sync/engine.js";
+import { syncNow as githubSyncNow, notifyBoardChange } from "./github-sync/engine.js";
 import { resultAlreadyInStreamedBlocks, shouldPreserveStreamedBlocks } from "./streamed-blocks.js";
 import { notifyParentSession, notifyRateLimited, notifyRateLimitResumed, notifyDiscordChannel, notifyAttachedTalkSessions } from "../sessions/callbacks.js";
 import { loadInstances } from "../cli/instances.js";
@@ -1689,6 +1689,7 @@ export async function handleApiRequest(
       const body = _parsed.body as any;
       fs.writeFileSync(boardPath, JSON.stringify(body, null, 2));
       context.emit("board:updated", { department: p.name });
+      notifyBoardChange(p.name);
       return json(res, { status: "ok" });
     }
 
