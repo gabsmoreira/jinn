@@ -4,6 +4,7 @@ import { Plus } from 'lucide-react'
 import { api } from '@/lib/api'
 import type { Employee, OrgData } from '@/lib/api'
 import type { KanbanTicket, TicketStatus, TicketPriority } from '@/lib/kanban/types'
+import { COLUMNS, LEGACY_STATUS_MIGRATION } from '@/lib/kanban/types'
 import {
   loadTickets,
   saveTickets,
@@ -99,6 +100,8 @@ export default function KanbanPage() {
       assignee?: string
       createdAt: string
       updatedAt: string
+      githubItemId?: string
+      githubSyncedAt?: number
     }>> = {}
 
     for (const ticket of Object.values(store)) {
@@ -114,6 +117,8 @@ export default function KanbanPage() {
         assignee: ticket.assigneeId || undefined,
         createdAt: new Date(ticket.createdAt).toISOString(),
         updatedAt: new Date(ticket.updatedAt).toISOString(),
+        githubItemId: ticket.githubItemId,
+        githubSyncedAt: ticket.githubSyncedAt,
       })
     }
 
@@ -154,19 +159,16 @@ export default function KanbanPage() {
               assignee?: string
               createdAt?: string
               updatedAt?: string
+              githubItemId?: string
+              githubSyncedAt?: number
             }>
             if (Array.isArray(board)) {
+              const validStatuses = new Set(COLUMNS.map((c) => c.id))
               for (const item of board) {
-                // Map board.json status to kanban statuses
-                const statusMap: Record<string, TicketStatus> = {
-                  todo: 'todo',
-                  'in_progress': 'in-progress',
-                  'in-progress': 'in-progress',
-                  done: 'done',
-                  backlog: 'backlog',
-                  review: 'review',
-                }
-                const status = statusMap[item.status] || 'todo'
+                // Map board.json status to kanban statuses, migrating legacy slugs
+                const status: TicketStatus = validStatuses.has(item.status as TicketStatus)
+                  ? (item.status as TicketStatus)
+                  : (LEGACY_STATUS_MIGRATION[item.status] ?? 'backlog')
                 const priorityMap: Record<string, TicketPriority> = {
                   low: 'low',
                   medium: 'medium',
@@ -185,6 +187,8 @@ export default function KanbanPage() {
                   createdAt: item.createdAt ? new Date(item.createdAt).getTime() : Date.now(),
                   updatedAt: item.updatedAt ? new Date(item.updatedAt).getTime() : Date.now(),
                   departmentId: dept,
+                  githubItemId: item.githubItemId,
+                  githubSyncedAt: item.githubSyncedAt,
                 }
               }
             }
@@ -246,6 +250,8 @@ export default function KanbanPage() {
             assignee: t.assigneeId ?? undefined,
             createdAt: new Date(t.createdAt).toISOString(),
             updatedAt: new Date(t.updatedAt).toISOString(),
+            githubItemId: t.githubItemId,
+            githubSyncedAt: t.githubSyncedAt,
           }))
           return api.updateDepartmentBoard(dept, boardData).catch(() => {
             // Silently ignore — department dir may not exist on disk yet
