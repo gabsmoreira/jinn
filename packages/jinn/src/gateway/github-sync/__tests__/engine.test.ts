@@ -121,12 +121,110 @@ describe("reconcile", () => {
     expect(readBoard("engineering")).toEqual([])
   })
 
-  it("records lastError and rethrows nothing when the client fails", async () => {
-    const { loadSyncState } = await import("../sync-state.js")
+  it("records lastError, rethrows nothing, and preserves prior sync state when the client fails immediately", async () => {
+    const { saveSyncState, loadSyncState } = await import("../sync-state.js")
+    const { writeBoard } = await import("../board-io.js")
     const { reconcile } = await import("../engine.js")
+    writeBoard("engineering", [{
+      id: "t1", title: "Linked", description: "", status: "done", priority: "medium",
+      createdAt: "2026-01-01T00:00:00.000Z", updatedAt: "2026-01-01T00:00:00.000Z",
+      githubItemId: "PVTI_a", githubSyncedAt: Date.parse("2026-01-01T00:00:00Z"),
+    }])
+    saveSyncState({ linkedItemIds: ["PVTI_a"], deletedItemIds: ["PVTI_b"], lastPollAt: 123, lastError: null })
     const client = fakeClient({ listItems: vi.fn(async () => { throw new Error("boom") }) })
     const summary = await reconcile({ client: client as any, github, nowIso: "2026-02-01T00:00:00.000Z", newId: () => "x" })
     expect(summary.error).toMatch(/boom/)
-    expect(loadSyncState().lastError).toMatch(/boom/)
+    const state = loadSyncState()
+    expect(state.lastError).toMatch(/boom/)
+    expect(state.linkedItemIds).toEqual(["PVTI_a"])
+    expect(state.deletedItemIds).toEqual(["PVTI_b"])
+  })
+
+  it("pushes local changes to GitHub when the local ticket is newer and remote is unchanged", async () => {
+    const { writeBoard, readBoard } = await import("../board-io.js")
+    const { reconcile } = await import("../engine.js")
+    writeBoard("engineering", [{
+      id: "t1", title: "Local Title", description: "d", status: "in-progress", priority: "medium",
+      createdAt: "2026-01-01T00:00:00.000Z", updatedAt: "2026-01-10T00:00:00.000Z",
+      githubItemId: "PVTI_x", githubSyncedAt: Date.parse("2026-01-05T00:00:00.000Z"),
+    }])
+    const client = fakeClient({
+      listItems: vi.fn(async () => [{
+        itemId: "PVTI_x", draftId: "DI_x", title: "Remote Title", body: "rb",
+        statusOptionId: "opt_done", updatedAtMs: Date.parse("2026-01-02T00:00:00Z"),
+      }]),
+    })
+    const summary = await reconcile({ client: client as any, github, nowIso: "2026-02-01T00:00:00.000Z", newId: () => "x" })
+    expect(client.updateDraft).toHaveBeenCalledWith("DI_x", "Local Title", "d")
+    expect(client.setStatus).toHaveBeenCalledWith("PVT_x", "PVTI_x", "F_status", "opt_ip")
+    expect(summary.updated).toBe(1)
+    const board = readBoard("engineering")
+    expect(board[0].title).toBe("Local Title")
+    expect(board[0].githubSyncedAt).toBe(Date.parse("2026-02-01T00:00:00.000Z"))
+  })
+
+  it("pulls remote changes into the local ticket when remote is newer", async () => {
+    const { writeBoard, readBoard } = await import("../board-io.js")
+    const { reconcile } = await import("../engine.js")
+    writeBoard("engineering", [{
+      id: "t1", title: "Local Title", description: "d", status: "in-progress", priority: "medium",
+      createdAt: "2026-01-01T00:00:00.000Z", updatedAt: "2026-01-02T00:00:00.000Z",
+      githubItemId: "PVTI_x", githubSyncedAt: Date.parse("2026-01-05T00:00:00.000Z"),
+    }])
+    const client = fakeClient({
+      listItems: vi.fn(async () => [{
+        itemId: "PVTI_x", draftId: "DI_x", title: "Remote Title", body: "rb",
+        statusOptionId: "opt_done", updatedAtMs: Date.parse("2026-01-10T00:00:00Z"),
+      }]),
+    })
+    const summary = await reconcile({ client: client as any, github, nowIso: "2026-02-01T00:00:00.000Z", newId: () => "x" })
+    expect(client.updateDraft).not.toHaveBeenCalled()
+    expect(client.setStatus).not.toHaveBeenCalled()
+    expect(client.createDraft).not.toHaveBeenCalled()
+    expect(summary.updated).toBe(1)
+    const board = readBoard("engineering")
+    expect(board[0].title).toBe("Remote Title")
+    expect(board[0].status).toBe("done")
+  })
+
+  it("does not lose or recreate a successfully-created draft when a later call fails mid-reconcile", async () => {
+    const { writeBoard, readBoard } = await import("../board-io.js")
+    const { reconcile } = await import("../engine.js")
+    writeBoard("engineering", [
+      {
+        id: "t1", title: "First", description: "", status: "backlog", priority: "medium",
+        createdAt: "2026-01-01T00:00:00.000Z", updatedAt: "2026-01-01T00:00:00.000Z",
+      },
+      {
+        id: "t2", title: "Second", description: "", status: "backlog", priority: "medium",
+        createdAt: "2026-01-01T00:00:00.000Z", updatedAt: "2026-01-01T00:00:00.000Z",
+      },
+    ])
+    const client = fakeClient({
+      createDraft: vi.fn(async (_projectId: string, title: string) => {
+        if (title === "First") return "PVTI_first"
+        throw new Error("rate limited")
+      }),
+    })
+    const summary1 = await reconcile({ client: client as any, github, nowIso: "2026-02-01T00:00:00.000Z", newId: () => "x" })
+    expect(summary1.error).toMatch(/rate limited/)
+    const boardAfterFailure = readBoard("engineering")
+    expect(boardAfterFailure).toHaveLength(2)
+    const first = boardAfterFailure.find((b) => b.id === "t1")
+    const second = boardAfterFailure.find((b) => b.id === "t2")
+    expect(first?.githubItemId).toBe("PVTI_first")
+    expect(second?.githubItemId).toBeUndefined()
+
+    // Second reconcile: GitHub now knows about "First" (matched by itemId) and
+    // createDraft resolves — only the still-unlinked "Second" should be created.
+    client.listItems = vi.fn(async () => [{
+      itemId: "PVTI_first", draftId: "DI_first", title: "First", body: "",
+      statusOptionId: null, updatedAtMs: Date.parse("2026-01-01T00:00:00Z"),
+    }])
+    client.createDraft = vi.fn(async () => "PVTI_second")
+    const summary2 = await reconcile({ client: client as any, github, nowIso: "2026-02-02T00:00:00.000Z", newId: () => "y" })
+    expect(summary2.error).toBeUndefined()
+    expect(client.createDraft).toHaveBeenCalledTimes(1)
+    expect(client.createDraft).toHaveBeenCalledWith("PVT_x", "Second", "")
   })
 })

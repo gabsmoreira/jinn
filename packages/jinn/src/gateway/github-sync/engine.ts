@@ -5,7 +5,7 @@ import { readBoard, writeBoard } from "./board-io.js"
 import { loadSyncState, saveSyncState } from "./sync-state.js"
 import type { GithubClient } from "./gql-client.js"
 import { createGithubClient } from "./gql-client.js"
-import type { BoardItem, ReconcileSummary } from "./types.js"
+import type { ReconcileSummary } from "./types.js"
 import {
   statusOptionIdForItem, resolveConflict, applyRemoteToItem, remoteToNewItem, msOf,
 } from "./mapping.js"
@@ -27,18 +27,42 @@ export async function reconcile(deps: ReconcileDeps): Promise<ReconcileSummary> 
   const optionIds = github.statusOptionIds ?? {}
   const fieldId = github.statusFieldId ?? ""
 
+  // Mutable working set keyed by ticket id. It starts as a complete copy of the
+  // local board and is only ever mutated in place (set/delete on existing or
+  // newly-imported keys) — so at any point, including mid-loop failure, it
+  // reflects every local ticket plus whatever GitHub calls have *actually
+  // succeeded* so far. This is what makes persisting on error safe: a draft
+  // created on GitHub before a later call throws still gets its githubItemId
+  // written to disk, so the next poll won't recreate it.
+  const local = readBoard(github.department)
+  const working = new Map(local.map((item) => [item.id, item]))
+  const newTombstones = [...state.deletedItemIds]
+
+  function persist(lastError: string | null) {
+    const nextLocal = [...working.values()]
+    writeBoard(github.department, nextLocal)
+    const linkedItemIds = nextLocal
+      .map((i) => i.githubItemId)
+      .filter((id): id is string => Boolean(id))
+    saveSyncState({
+      linkedItemIds,
+      deletedItemIds: newTombstones,
+      lastPollAt: lastError === null ? msOf(nowIso) : state.lastPollAt,
+      lastError,
+    })
+  }
+
   try {
     const remote = await client.listItems(github.projectId)
     const remoteById = new Map(remote.map((r) => [r.itemId, r]))
-    const local = readBoard(github.department)
-    const nextLocal: BoardItem[] = []
 
     // Local-side pass: linked / local-only / delete-remote.
-    for (const item of local) {
+    for (const item of working.values()) {
       if (item.githubItemId) {
         const match = remoteById.get(item.githubItemId)
         if (!match) {
           // Linked item vanished from GitHub → delete locally.
+          working.delete(item.id)
           summary.deleted++
           continue
         }
@@ -49,12 +73,10 @@ export async function reconcile(deps: ReconcileDeps): Promise<ReconcileSummary> 
           const optId = statusOptionIdForItem(item, optionIds)
           if (optId && fieldId) await client.setStatus(github.projectId, item.githubItemId, fieldId, optId)
           summary.updated++
-          nextLocal.push({ ...item, githubSyncedAt: msOf(nowIso) })
+          working.set(item.id, { ...item, githubSyncedAt: msOf(nowIso) })
         } else if (decision === "pull") {
           summary.updated++
-          nextLocal.push(applyRemoteToItem(item, match, optionIds, nowIso))
-        } else {
-          nextLocal.push(item)
+          working.set(item.id, applyRemoteToItem(item, match, optionIds, nowIso))
         }
       } else {
         // Local-only → create draft on GitHub.
@@ -62,7 +84,7 @@ export async function reconcile(deps: ReconcileDeps): Promise<ReconcileSummary> 
         const optId = statusOptionIdForItem(item, optionIds)
         if (optId && fieldId) await client.setStatus(github.projectId, itemId, fieldId, optId)
         summary.created++
-        nextLocal.push({ ...item, githubItemId: itemId, githubSyncedAt: msOf(nowIso) })
+        working.set(item.id, { ...item, githubItemId: itemId, githubSyncedAt: msOf(nowIso) })
       }
     }
 
@@ -72,7 +94,6 @@ export async function reconcile(deps: ReconcileDeps): Promise<ReconcileSummary> 
     //   • genuinely new          → import as a new local ticket
     const tombstones = new Set(state.deletedItemIds)
     const previouslyLinked = new Set(state.linkedItemIds)
-    const newTombstones = [...state.deletedItemIds]
     for (const r of remoteById.values()) {
       if (tombstones.has(r.itemId)) continue
       if (previouslyLinked.has(r.itemId)) {
@@ -81,27 +102,22 @@ export async function reconcile(deps: ReconcileDeps): Promise<ReconcileSummary> 
         summary.deleted++
         continue
       }
-      nextLocal.push(remoteToNewItem(r, optionIds, newId(), nowIso))
+      const item = remoteToNewItem(r, optionIds, newId(), nowIso)
+      working.set(item.id, item)
       summary.imported++
     }
 
-    writeBoard(github.department, nextLocal)
-    const linkedItemIds = nextLocal
-      .map((i) => i.githubItemId)
-      .filter((id): id is string => Boolean(id))
-    saveSyncState({
-      linkedItemIds,
-      deletedItemIds: newTombstones,
-      lastPollAt: msOf(nowIso),
-      lastError: null,
-    })
+    persist(null)
     if (summary.deleted || summary.imported || summary.updated || summary.created) {
       emit?.("board:updated", { department: github.department })
     }
   } catch (err) {
     const message = err instanceof Error ? err.message : String(err)
     summary.error = message
-    saveSyncState({ ...state, lastError: message })
+    // Persist whatever succeeded before the failure (see `working` comment
+    // above) — never drop tickets, never lose a githubItemId that GitHub
+    // already has on record.
+    persist(message)
     logger.error(`GitHub sync reconcile failed: ${message}`)
   }
   return summary
