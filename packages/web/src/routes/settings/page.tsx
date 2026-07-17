@@ -453,7 +453,7 @@ function GithubSyncPanel() {
   const [department, setDepartment] = useState("")
   const [pollInterval, setPollInterval] = useState("")
   const [busy, setBusy] = useState(false)
-  const [notice, setNotice] = useState<{ type: "success" | "error"; message: string } | null>(null)
+  const [notice, setNotice] = useState<{ type: "success" | "error" | "warning"; message: string } | null>(null)
 
   function loadStatus() {
     return api
@@ -463,7 +463,15 @@ function GithubSyncPanel() {
         setPollInterval(String(s.pollIntervalSec ?? 60))
         if (s.department) setDepartment(s.department)
       })
-      .catch((err) => setNotice({ type: "error", message: err instanceof Error ? err.message : String(err) }))
+      .catch((err) => {
+        // Keep a disconnected stub so the section still renders (header + notice)
+        // instead of disappearing entirely when the initial status load fails.
+        setStatus((prev) => prev ?? {
+          connected: false, enabled: false, projectTitle: null,
+          department: null, pollIntervalSec: 60, lastPollAt: null, lastError: null,
+        })
+        setNotice({ type: "error", message: err instanceof Error ? err.message : String(err) })
+      })
   }
 
   useEffect(() => {
@@ -488,7 +496,7 @@ function GithubSyncPanel() {
         ...r.unmatchedGithub.map((g) => `GitHub status "${g}" has no matching Jinn column`),
       ]
       setNotice({
-        type: warnings.length ? "error" : "success",
+        type: warnings.length ? "warning" : "success",
         message: warnings.length
           ? `Connected to ${r.projectTitle}. Heads-up: ${warnings.join("; ")}`
           : `Connected to ${r.projectTitle}.`,
@@ -567,15 +575,21 @@ function GithubSyncPanel() {
 
   if (!status) return null
 
+  const noticeColors = {
+    success: { bg: "rgba(34,197,94,0.1)", border: "rgba(34,197,94,0.3)", fg: "var(--system-green)" },
+    warning: { bg: "rgba(232,155,69,0.12)", border: "rgba(232,155,69,0.35)", fg: "var(--system-orange)" },
+    error: { bg: "rgba(239,68,68,0.1)", border: "rgba(239,68,68,0.3)", fg: "var(--system-red)" },
+  } as const
+
   return (
     <Section title="GitHub Projects Sync">
       {notice && (
         <div
           className="mb-[var(--space-3)] px-[var(--space-3)] py-[var(--space-2)] rounded-[var(--radius-md)] text-[length:var(--text-footnote)]"
           style={{
-            background: notice.type === "success" ? "rgba(34,197,94,0.1)" : "rgba(239,68,68,0.1)",
-            border: `1px solid ${notice.type === "success" ? "rgba(34,197,94,0.3)" : "rgba(239,68,68,0.3)"}`,
-            color: notice.type === "success" ? "var(--system-green)" : "var(--system-red)",
+            background: noticeColors[notice.type].bg,
+            border: `1px solid ${noticeColors[notice.type].border}`,
+            color: noticeColors[notice.type].fg,
           }}
         >
           {notice.message}
