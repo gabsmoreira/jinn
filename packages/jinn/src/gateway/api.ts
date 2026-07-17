@@ -463,6 +463,17 @@ function serverError(res: ServerResponse, message: string): void {
   json(res, { error: message }, 500);
 }
 
+// Tolerant read of config.yaml (missing/unparseable file yields {}). Shared by
+// the GitHub kanban-sync connect/config/disconnect routes, which each need the
+// on-disk config to merge their own patch into before calling saveConfigAtomic.
+function readConfigYaml(): Record<string, unknown> {
+  try {
+    return (yaml.load(fs.readFileSync(CONFIG_PATH, "utf-8")) as Record<string, unknown>) || {};
+  } catch {
+    return {};
+  }
+}
+
 const REDACTED_SECRET = "***";
 
 export function isSensitiveConfigKey(key: string): boolean {
@@ -1856,7 +1867,10 @@ export async function handleApiRequest(
         return badRequest(res, `Could not connect to GitHub: ${err instanceof Error ? err.message : err}`);
       }
       const { statusOptionIds, unmatchedColumns, unmatchedGithub } = buildStatusOptionIds(resolved.options);
-      const existing = (() => { try { return yaml.load(fs.readFileSync(CONFIG_PATH, "utf-8")) as Record<string, unknown> || {}; } catch { return {}; } })();
+      const existing = readConfigYaml();
+      // Fully replace the github block — do NOT deepMerge: a reconnect to a different
+      // project must not retain stale statusOptionIds. token here is the real value
+      // from the connect form.
       const merged = { ...existing, github: {
         token: body.token, projectId: resolved.projectId, projectTitle: resolved.title,
         department: body.department, statusFieldId: resolved.statusFieldId, statusOptionIds,
@@ -1879,7 +1893,9 @@ export async function handleApiRequest(
       if (typeof body.pollIntervalSec === "number") patch.pollIntervalSec = Math.max(15, body.pollIntervalSec);
       if (typeof body.enabled === "boolean") patch.enabled = body.enabled;
       if (typeof body.department === "string") patch.department = body.department;
-      const existing = (() => { try { return yaml.load(fs.readFileSync(CONFIG_PATH, "utf-8")) as Record<string, unknown> || {}; } catch { return {}; } })();
+      const existing = readConfigYaml();
+      // patch carries only primitives (pollIntervalSec/enabled/department), never
+      // token — a plain spread is safe and needs no REDACTED_SECRET round-trip.
       const merged = { ...existing, github: { ...(existing.github as object), ...patch } };
       saveConfigAtomic(merged);
       context.reloadConfig?.();
@@ -1896,7 +1912,7 @@ export async function handleApiRequest(
 
     // POST /api/kanban/github/disconnect
     if (method === "POST" && pathname === "/api/kanban/github/disconnect") {
-      const existing = (() => { try { return yaml.load(fs.readFileSync(CONFIG_PATH, "utf-8")) as Record<string, unknown> || {}; } catch { return {}; } })();
+      const existing = readConfigYaml();
       delete (existing as Record<string, unknown>).github;
       saveConfigAtomic(existing);
       context.reloadConfig?.();
