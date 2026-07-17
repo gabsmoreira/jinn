@@ -77,6 +77,10 @@ import { WhatsAppConnector } from "../connectors/whatsapp/index.js";
 import { handleFilesRequest, handleSessionAttachment, fileIdsToMedia, rehomeAttachmentsToSession, ensureFilesDir } from "./files.js";
 import { readJsonBody, readBodyRaw } from "./http-helpers.js";
 import { readJsonlTail } from "./jsonl-tail.js";
+import { createGithubClient } from "./github-sync/gql-client.js";
+import { buildStatusOptionIds } from "./github-sync/connect.js";
+import { loadSyncState } from "./github-sync/sync-state.js";
+import { syncNow as githubSyncNow } from "./github-sync/engine.js";
 import { resultAlreadyInStreamedBlocks, shouldPreserveStreamedBlocks } from "./streamed-blocks.js";
 import { notifyParentSession, notifyRateLimited, notifyRateLimitResumed, notifyDiscordChannel, notifyAttachedTalkSessions } from "../sessions/callbacks.js";
 import { loadInstances } from "../cli/instances.js";
@@ -1819,6 +1823,84 @@ export async function handleApiRequest(
       context.reloadConfig?.(); // refresh in-memory config now (don't wait on the watcher)
       invalidateModelRegistry(); // models/engines may have changed — rebuild on next read
       logger.info("Config updated via API");
+      return json(res, { status: "ok" });
+    }
+
+    // GET /api/kanban/github/status
+    if (method === "GET" && pathname === "/api/kanban/github/status") {
+      const g = context.getConfig().github;
+      const state = loadSyncState();
+      return json(res, {
+        connected: Boolean(g?.token && g?.projectId),
+        enabled: Boolean(g?.enabled),
+        projectTitle: g?.projectTitle ?? null,
+        department: g?.department ?? null,
+        pollIntervalSec: g?.pollIntervalSec ?? 45,
+        lastPollAt: state.lastPollAt,
+        lastError: state.lastError,
+      });
+    }
+
+    // POST /api/kanban/github/connect  { token, projectUrlOrId, department }
+    if (method === "POST" && pathname === "/api/kanban/github/connect") {
+      const _parsed = await readJsonBody(req, res);
+      if (!_parsed.ok) return;
+      const body = _parsed.body as { token?: string; projectUrlOrId?: string; department?: string };
+      if (!body.token || !body.projectUrlOrId || !body.department) {
+        return badRequest(res, "token, projectUrlOrId and department are required");
+      }
+      let resolved;
+      try {
+        resolved = await createGithubClient(body.token).resolveProject(body.projectUrlOrId);
+      } catch (err) {
+        return badRequest(res, `Could not connect to GitHub: ${err instanceof Error ? err.message : err}`);
+      }
+      const { statusOptionIds, unmatchedColumns, unmatchedGithub } = buildStatusOptionIds(resolved.options);
+      const existing = (() => { try { return yaml.load(fs.readFileSync(CONFIG_PATH, "utf-8")) as Record<string, unknown> || {}; } catch { return {}; } })();
+      const merged = { ...existing, github: {
+        token: body.token, projectId: resolved.projectId, projectTitle: resolved.title,
+        department: body.department, statusFieldId: resolved.statusFieldId, statusOptionIds,
+        pollIntervalSec: 45, enabled: true,
+      } };
+      saveConfigAtomic(merged);
+      context.reloadConfig?.();
+      context.emit("github-sync:reloaded", {});
+      return json(res, { status: "ok", projectTitle: resolved.title, unmatchedColumns, unmatchedGithub });
+    }
+
+    // PUT /api/kanban/github/config  { pollIntervalSec?, enabled?, department? }
+    if (method === "PUT" && pathname === "/api/kanban/github/config") {
+      const _parsed = await readJsonBody(req, res);
+      if (!_parsed.ok) return;
+      const body = _parsed.body as Record<string, unknown>;
+      const g = context.getConfig().github;
+      if (!g) return badRequest(res, "GitHub sync is not connected");
+      const patch: Record<string, unknown> = {};
+      if (typeof body.pollIntervalSec === "number") patch.pollIntervalSec = Math.max(15, body.pollIntervalSec);
+      if (typeof body.enabled === "boolean") patch.enabled = body.enabled;
+      if (typeof body.department === "string") patch.department = body.department;
+      const existing = (() => { try { return yaml.load(fs.readFileSync(CONFIG_PATH, "utf-8")) as Record<string, unknown> || {}; } catch { return {}; } })();
+      const merged = { ...existing, github: { ...(existing.github as object), ...patch } };
+      saveConfigAtomic(merged);
+      context.reloadConfig?.();
+      context.emit("github-sync:reloaded", {});
+      return json(res, { status: "ok" });
+    }
+
+    // POST /api/kanban/github/sync-now
+    if (method === "POST" && pathname === "/api/kanban/github/sync-now") {
+      if (!context.getConfig().github?.enabled) return badRequest(res, "GitHub sync is disabled");
+      const summary = await githubSyncNow();
+      return json(res, summary);
+    }
+
+    // POST /api/kanban/github/disconnect
+    if (method === "POST" && pathname === "/api/kanban/github/disconnect") {
+      const existing = (() => { try { return yaml.load(fs.readFileSync(CONFIG_PATH, "utf-8")) as Record<string, unknown> || {}; } catch { return {}; } })();
+      delete (existing as Record<string, unknown>).github;
+      saveConfigAtomic(existing);
+      context.reloadConfig?.();
+      context.emit("github-sync:reloaded", {});
       return json(res, { status: "ok" });
     }
 
