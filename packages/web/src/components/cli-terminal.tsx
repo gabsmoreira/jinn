@@ -117,7 +117,7 @@ export interface CliTerminalHandle {
   sendKey(data: string): void;
 }
 
-export const CliTerminal = forwardRef<CliTerminalHandle, { sessionId: string }>(function CliTerminal({ sessionId }, ref) {
+export const CliTerminal = forwardRef<CliTerminalHandle, { sessionId: string; interactive?: boolean }>(function CliTerminal({ sessionId, interactive = false }, ref) {
   const containerRef = useRef<HTMLDivElement>(null);
   const wsRef = useRef<WebSocket | null>(null);
   // Lets the visibility effect (a separate effect) recover a dead socket without
@@ -156,15 +156,27 @@ export const CliTerminal = forwardRef<CliTerminalHandle, { sessionId: string }>(
       theme: resolveXtermTheme(),
       scrollback: 5000,
       scrollOnUserInput: true,
-      // Display-only: input flows through the sibling ChatInput, never via
-      // xterm. Disabling stdin drops xterm's hidden helper textarea + its
-      // pointer/touch handlers, which were absorbing one-finger swipes on iOS
-      // before they could reach .xterm-viewport's scrollable area.
-      disableStdin: true,
+      // In `interactive` mode (the Terminals view) xterm owns stdin so you can type
+      // straight into claude. Otherwise (the chat CLI toggle) input flows through the
+      // sibling ChatInput and stdin is disabled — that also drops xterm's hidden
+      // helper textarea + pointer/touch handlers, which were absorbing one-finger
+      // swipes on iOS before they could reach .xterm-viewport's scrollable area.
+      disableStdin: !interactive,
     });
     const fit = new FitAddon();
     term.loadAddon(fit);
     term.open(containerRef.current);
+
+    // Interactive terminal: forward every keystroke/paste straight to the PTY as
+    // stdin (backend writeStdin). Only the Terminals view enables this; the chat
+    // CLI toggle stays display-only. term.dispose() in cleanup drops this listener.
+    if (interactive) {
+      term.onData((data) => {
+        const ws = wsRef.current;
+        if (ws && ws.readyState === WebSocket.OPEN) ws.send(JSON.stringify({ type: "stdin", data }));
+      });
+    }
+
     // NOTE: deliberately NOT calling fit.fit() synchronously here. On direct
     // CLI mount the container hasn't laid out yet (width 0), so a sync fit
     // would lock xterm to ~0 cols and the backend PTY would render claude's
@@ -415,7 +427,7 @@ export const CliTerminal = forwardRef<CliTerminalHandle, { sessionId: string }>(
       wsRef.current = null;
       term.dispose();
     };
-  }, [sessionId]);
+  }, [sessionId, interactive]);
 
   // Page Visibility — emit on backgrounding/foregrounding so the backend can
   // start the 10-min grace timer (hidden) or trigger auto-resume respawn (visible).
