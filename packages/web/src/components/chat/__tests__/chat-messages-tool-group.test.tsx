@@ -116,6 +116,29 @@ describe('ChatMessages tool groups', () => {
     expect(screen.getByRole('button', { name: /Bash.*npm test/i })).toBeTruthy()
   })
 
+  it('expands an edit card to show a red/green diff', () => {
+    const messages: Message[] = [{
+      id: 'tool-edit',
+      role: 'assistant',
+      content: 'Using Edit',
+      timestamp: 100,
+      toolCall: 'Edit',
+      toolInput: 'store.ts',
+      toolEdit: { filePath: '/a/store.ts', hunks: [{ oldText: 'const x = 1', newText: 'const x = 2' }] },
+    }]
+
+    render(<ChatMessages messages={messages} loading />)
+
+    // Expand the tool group (collapsed pill shows the active "Edit · store.ts").
+    fireEvent.click(screen.getAllByRole('button', { name: /store\.ts/i })[0])
+    const list = screen.getByTestId('tool-group-list')
+    expect(list.textContent).not.toContain('const x = 2') // diff hidden until opened
+    // Open the edit card → the diff appears with removed + added lines.
+    fireEvent.click(within(list).getByRole('button'))
+    expect(list.textContent).toContain('const x = 1')
+    expect(list.textContent).toContain('const x = 2')
+  })
+
   it('keeps a tool group active when a live block follows it', () => {
     const messages: Message[] = [
       {

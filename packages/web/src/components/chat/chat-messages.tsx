@@ -8,6 +8,7 @@ import { useMessageTts, stopMessageTts } from './use-message-tts'
 import { ChatBlockInline, statusMark } from './chat-blocks'
 import { blockFallbackContent } from '@/lib/blocks'
 import { formatElapsed } from './format-elapsed'
+import { computeLineDiff } from './tool-diff'
 import { ChevronDown, Wrench } from 'lucide-react'
 
 /* ── Tool grouping ──────────────────────────────────────── */
@@ -47,6 +48,72 @@ function groupMessages(messages: Message[]): MessageItem[] {
     }
   }
   return items
+}
+
+function ToolDiff({ edit }: { edit: NonNullable<Message['toolEdit']> }) {
+  return (
+    <div className="ml-6 mt-1 max-w-[min(620px,calc(100vw_-_var(--space-6)))] overflow-x-auto rounded-[var(--radius-md)] bg-[var(--bg-secondary)] px-2 py-1.5 font-[family-name:var(--font-code)] text-[length:var(--text-caption1)] leading-5">
+      {edit.hunks.map((h, hi) => (
+        <div key={hi} className={hi > 0 ? 'mt-1.5 border-t border-[var(--separator)] pt-1.5' : ''}>
+          {computeLineDiff(h.oldText, h.newText).map((line, li) => (
+            <div
+              key={li}
+              className={
+                line.type === 'add'
+                  ? 'whitespace-pre bg-[color-mix(in_srgb,var(--system-green)_14%,transparent)]'
+                  : line.type === 'del'
+                    ? 'whitespace-pre bg-[color-mix(in_srgb,var(--system-red)_14%,transparent)]'
+                    : 'whitespace-pre text-[var(--text-tertiary)]'
+              }
+            >
+              <span className="select-none text-[var(--text-quaternary)]">
+                {line.type === 'add' ? '+ ' : line.type === 'del' ? '- ' : '  '}
+              </span>
+              {line.text || ' '}
+            </div>
+          ))}
+        </div>
+      ))}
+      {edit.truncated ? (
+        <div className="mt-1 text-[var(--text-quaternary)]">diff truncated — open the terminal view for the full change</div>
+      ) : null}
+    </div>
+  )
+}
+
+// One tool card in an expanded group. Edit/Write/MultiEdit cards (which carry a
+// diff payload) become individually expandable to reveal a red/green diff.
+function ToolCardRow({ msg, index, status }: { msg: Message; index: number; status: string }) {
+  const [open, setOpen] = useState(false)
+  const hasDiff = !!msg.toolEdit && msg.toolEdit.hunks.length > 0
+  const label = (
+    <>
+      <span className="grid size-4 shrink-0 place-items-center">{statusMark(status)}</span>
+      <span className="min-w-0 truncate text-[length:var(--text-footnote)] font-[var(--weight-medium)] text-[var(--text-primary)]">
+        {msg.toolCall || `Tool ${index + 1}`}
+        {msg.toolInput ? (
+          <span className="font-[var(--weight-regular)] text-[var(--text-tertiary)]"> · {msg.toolInput}</span>
+        ) : null}
+      </span>
+    </>
+  )
+  if (!hasDiff) {
+    return <div className="inline-flex min-h-9 max-w-full items-center gap-1.5 px-2.5 py-1 text-left">{label}</div>
+  }
+  return (
+    <div className="max-w-full">
+      <button
+        type="button"
+        onClick={() => setOpen((v) => !v)}
+        aria-expanded={open}
+        className="inline-flex min-h-9 max-w-full items-center gap-1.5 rounded-md px-2.5 py-1 text-left transition-colors hover:bg-[var(--fill-tertiary)]"
+      >
+        {label}
+        <ChevronDown size={12} className={`shrink-0 text-[var(--text-quaternary)] transition-transform ${open ? 'rotate-180' : ''}`} />
+      </button>
+      {open ? <ToolDiff edit={msg.toolEdit!} /> : null}
+    </div>
+  )
 }
 
 function ToolGroup({
@@ -104,22 +171,7 @@ function ToolGroup({
             const done = isToolDone(m)
             const key = m.id || `${m.toolCall}-${index}`
             const status = done ? 'done' : index === activeIndex ? 'running' : 'queued'
-            return (
-              <div
-                key={key}
-                className="inline-flex min-h-9 max-w-full items-center gap-1.5 px-2.5 py-1 text-left"
-              >
-                <span className="grid size-4 shrink-0 place-items-center">
-                  {statusMark(status)}
-                </span>
-                <span className="min-w-0 truncate text-[length:var(--text-footnote)] font-[var(--weight-medium)] text-[var(--text-primary)]">
-                  {m.toolCall || `Tool ${index + 1}`}
-                  {m.toolInput ? (
-                    <span className="font-[var(--weight-regular)] text-[var(--text-tertiary)]"> · {m.toolInput}</span>
-                  ) : null}
-                </span>
-              </div>
-            )
+            return <ToolCardRow key={key} msg={m} index={index} status={status} />
           })}
           {hiddenToolCount > 0 && (
             <button

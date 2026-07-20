@@ -2825,6 +2825,7 @@ async function runWebSession(
             toolName: outgoingDelta.toolName,
             toolId: outgoingDelta.toolId,
             input: outgoingDelta.input,
+            edit: outgoingDelta.edit,
             block: outgoingDelta.block,
           });
         } catch (err) {
