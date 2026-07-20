@@ -1022,19 +1022,6 @@ export class InteractiveClaudeEngine implements InterruptibleEngine, PtyViewEngi
     if (this.idleSpawning.has(jinnSessionId)) return; // an idle spawn is already in flight
     this.idleSpawning.add(jinnSessionId);
 
-    const settingsPath = writeSessionSettings(CLAUDE_SETTINGS_DIR, jinnSessionId, {
-      sessionId: jinnSessionId,
-      relayScript: HOOK_RELAY_SCRIPT,
-      statusLineDir: CLAUDE_LIMITS_DIR,
-    });
-    const args: string[] = [
-      "--chrome",
-      "--dangerously-skip-permissions",
-      "--disallowedTools", "AskUserQuestion", "ExitPlanMode",
-      "--settings", settingsPath,
-    ];
-    if (opts.engineSessionId) args.unshift("--resume", opts.engineSessionId);
-    if (opts.model) args.push("--model", opts.model);
     const bin = resolveBin("claude", opts.bin);
     // Caller (pty-ws) passes the client's current cols/rows. Cache them so a
     // future cold spawn through run() picks up the right geometry too.
@@ -1052,6 +1039,26 @@ export class InteractiveClaudeEngine implements InterruptibleEngine, PtyViewEngi
           proxy.stop();
           return;
         }
+        // Write the per-session --settings file HERE — right before spawn, NOT before
+        // the `await startProxy` above. releaseSession() fires cleanupSessionSettings(),
+        // which DELETES this exact file; a PTY release for this session during the proxy
+        // bind (e.g. a just-failed --resume claude exiting) would otherwise unlink it in
+        // the gap, so claude started against a `--settings <file>` that no longer existed
+        // → "Settings file not found". Mirrors the run() path, which writes settings right
+        // before spawning for the same reason.
+        const settingsPath = writeSessionSettings(CLAUDE_SETTINGS_DIR, jinnSessionId, {
+          sessionId: jinnSessionId,
+          relayScript: HOOK_RELAY_SCRIPT,
+          statusLineDir: CLAUDE_LIMITS_DIR,
+        });
+        const args: string[] = [
+          "--chrome",
+          "--dangerously-skip-permissions",
+          "--disallowedTools", "AskUserQuestion", "ExitPlanMode",
+          "--settings", settingsPath,
+        ];
+        if (opts.engineSessionId) args.unshift("--resume", opts.engineSessionId);
+        if (opts.model) args.push("--model", opts.model);
         const env = this.buildPtyEnv(port || undefined, jinnSessionId);
         logger.info(`InteractiveClaudeEngine ensureIdleSpawn for session ${jinnSessionId} (resume ${opts.engineSessionId || "none — fresh"}, geom ${cols}×${rows}, sseProxy: ${port || "off"})`);
         const proc = pty.spawn(bin, args, {
