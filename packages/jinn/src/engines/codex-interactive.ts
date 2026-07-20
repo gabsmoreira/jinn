@@ -485,9 +485,13 @@ export class CodexInteractiveEngine implements InterruptibleEngine, PtyViewEngin
     return this.streams.subscribe(sessionId, cb, onControl);
   }
 
+  // Raw interactive stdin (Terminals view): forward keystrokes/paste verbatim so
+  // the TUI owns line editing and only the user's own Enter submits. Whole-prompt
+  // injection uses pasteAndSubmit; do NOT paste+submit here (that fired a command
+  // on every keystroke). No-op if no warm PTY.
   writeStdin(sessionId: string, text: string): void {
     const proc = (this.lifecycle.getWarm(sessionId) as any)?._proc as pty.IPty | undefined;
-    if (proc) pasteAndSubmit(proc, text);
+    if (proc) proc.write(text);
   }
 
   writeRaw(sessionId: string, data: string): void {

@@ -1109,13 +1109,18 @@ export class InteractiveClaudeEngine implements InterruptibleEngine, PtyViewEngi
     return this.streams.subscribe(sessionId, cb, onControl);
   }
 
-  /** Write raw text to the warm PTY as a bracketed-paste + CR (same /@!-guard as injectPrompt). No-op if no warm PTY. */
+  /** Forward raw interactive stdin (per-keystroke or paste) straight to the warm
+   *  PTY — no bracketed-paste wrapper, no auto-CR. The Terminals view sends every
+   *  keystroke here via {type:"stdin"}, so claude's TUI owns line editing and only
+   *  the user's own Enter (\r, which arrives through this same path) submits.
+   *  Whole-prompt injection (the message-API path) uses injectPrompt/pasteAndSubmit
+   *  instead, which DO bracketed-paste + submit. No-op if no warm PTY. */
   writeStdin(sessionId: string, text: string): void {
     const handle = this.lifecycle.getWarm(sessionId);
     if (!handle) return;
     const proc = (handle as any)._proc as pty.IPty | undefined;
     if (!proc) return;
-    pasteAndSubmit(proc, text);
+    proc.write(text);
   }
 
   writeRaw(sessionId: string, data: string): void {
