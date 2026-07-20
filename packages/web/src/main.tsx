@@ -16,6 +16,7 @@ const SkillsPage = lazyRoute(() => import('./routes/skills/page'), 'skills')
 const FilePage = lazyRoute(() => import('./routes/file/page'), 'file')
 const RedesignPage = lazyRoute(() => import('./routes/redesign/page'), 'redesign')
 const TalkPage = lazyRoute(() => import('./routes/talk/page'), 'talk')
+const TerminalsPage = lazyRoute(() => import('./routes/terminals/page'), 'terminals')
 
 function RouteLoading() {
   return (
@@ -70,6 +71,7 @@ function App() {
               <Route path="/skills" element={<SkillsPage />} />
               <Route path="/file" element={<FilePage />} />
               <Route path="/talk" element={<TalkPage />} />
+              <Route path="/terminals" element={<TerminalsPage />} />
               {import.meta.env.DEV && <Route path="/redesign" element={<RedesignPage />} />}
             </Routes>
           </Suspense>
