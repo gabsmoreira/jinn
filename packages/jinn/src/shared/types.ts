@@ -29,6 +29,13 @@ export interface StreamDelta {
    *  `tool_use` deltas (fired just before the tool runs, full input assembled).
    *  Absent on the SSE-proxy `content_block_start` delta (input not yet known). */
   input?: string;
+  /** Normalized file-edit payload for Edit/Write/MultiEdit PreToolUse deltas —
+   *  drives the in-chat red/green diff view. */
+  edit?: {
+    filePath: string;
+    hunks: { oldText: string; newText: string }[];
+    truncated?: boolean;
+  };
   /** Structured chat-view UI update. CLI and connector transports may ignore it. */
   block?: ChatBlockEnvelope;
 }

@@ -202,19 +202,58 @@ export function buildInteractiveArgs(o: InteractiveArgsOpts): string[] {
   return args;
 }
 
+const MAX_EDIT_CHARS = 24_000;
+
+/** Normalize an Edit/Write/MultiEdit tool_input into diff hunks for the in-chat
+ *  diff view (size-capped so a whole-file Write can't bloat the WS frame). */
+function buildEditPayload(toolName: string | undefined, toolInput: unknown): StreamDelta["edit"] | undefined {
+  if (!toolName || !toolInput || typeof toolInput !== "object") return undefined;
+  const inp = toolInput as Record<string, unknown>;
+  const filePath = typeof inp.file_path === "string" ? inp.file_path
+    : typeof inp.notebook_path === "string" ? inp.notebook_path : "";
+  let hunks: { oldText: string; newText: string }[];
+  if (toolName === "Edit") {
+    hunks = [{ oldText: String(inp.old_string ?? ""), newText: String(inp.new_string ?? "") }];
+  } else if (toolName === "Write") {
+    hunks = [{ oldText: "", newText: String(inp.content ?? "") }];
+  } else if (toolName === "MultiEdit" && Array.isArray(inp.edits)) {
+    hunks = (inp.edits as unknown[]).map((e) => {
+      const ed = (e ?? {}) as Record<string, unknown>;
+      return { oldText: String(ed.old_string ?? ""), newText: String(ed.new_string ?? "") };
+    });
+  } else {
+    return undefined;
+  }
+  let budget = MAX_EDIT_CHARS;
+  let truncated = false;
+  const capped: { oldText: string; newText: string }[] = [];
+  for (const hunk of hunks) {
+    if (budget <= 0) { truncated = true; break; }
+    const oldText = hunk.oldText.slice(0, budget);
+    budget -= oldText.length;
+    const newText = budget > 0 ? hunk.newText.slice(0, budget) : "";
+    budget -= newText.length;
+    if (oldText.length < hunk.oldText.length || newText.length < hunk.newText.length) truncated = true;
+    capped.push({ oldText, newText });
+  }
+  return { filePath, hunks: capped, ...(truncated ? { truncated: true } : {}) };
+}
+
 export function claudeHookToDeltas(h: Record<string, unknown>): StreamDelta[] {
   const toolName = typeof h.tool_name === "string" ? h.tool_name : undefined;
   if (h.hook_event_name === "PreToolUse") {
     // The SSE content_block_start already emitted the tool_use card (name + id);
     // this carries the assembled input so the card can show the command/target
-    // (e.g. "Bash · npm test"). A distinct `tool_input` type so the web merges it
-    // into that card instead of rendering a duplicate.
+    // (e.g. "Bash · npm test") and, for edit tools, the diff hunks. A distinct
+    // `tool_input` type so the web merges it into that card, not a duplicate.
     const input = h.tool_input !== undefined ? JSON.stringify(h.tool_input).slice(0, 200) : undefined;
+    const edit = buildEditPayload(toolName, h.tool_input);
     return [{
       type: "tool_input",
       content: String(h.tool_name ?? ""),
       toolName,
       ...(input !== undefined ? { input } : {}),
+      ...(edit ? { edit } : {}),
     }];
   }
   if (h.hook_event_name === "PostToolUse") {

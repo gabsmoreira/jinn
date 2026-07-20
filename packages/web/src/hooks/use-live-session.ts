@@ -432,16 +432,17 @@ export function useLiveSession(
           // "Bash · npm test". Match the most recent unfinished card for this tool.
           const toolName = String(p.toolName || '')
           const summary = summarizeToolInput(toolName, typeof p.input === 'string' ? p.input : undefined)
-          if (summary) {
+          const edit = p.edit && typeof p.edit === 'object' ? (p.edit as Message['toolEdit']) : undefined
+          if (summary || edit) {
             setMessages((prev) => {
               for (let i = prev.length - 1; i >= 0; i--) {
                 const m = prev[i]
                 if (
-                  m.role === 'assistant' && m.toolCall && !m.toolInput &&
+                  m.role === 'assistant' && m.toolCall && !m.toolInput && !m.toolEdit &&
                   !m.content.startsWith('Used ') && (!toolName || m.toolCall === toolName)
                 ) {
                   const updated = [...prev]
-                  updated[i] = { ...m, toolInput: summary }
+                  updated[i] = { ...m, ...(summary ? { toolInput: summary } : {}), ...(edit ? { toolEdit: edit } : {}) }
                   return updated
                 }
               }

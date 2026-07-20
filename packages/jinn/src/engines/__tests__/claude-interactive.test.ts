@@ -38,6 +38,38 @@ describe("claudeHookToDeltas", () => {
     ]);
   });
 
+  it("attaches a normalized edit payload for Edit (old→new hunk)", () => {
+    const [d] = claudeHookToDeltas({
+      hook_event_name: "PreToolUse",
+      tool_name: "Edit",
+      tool_input: { file_path: "/a/b.ts", old_string: "foo", new_string: "bar" },
+    });
+    expect(d.edit).toEqual({ filePath: "/a/b.ts", hunks: [{ oldText: "foo", newText: "bar" }] });
+  });
+
+  it("treats Write as an all-added edit", () => {
+    const [d] = claudeHookToDeltas({
+      hook_event_name: "PreToolUse",
+      tool_name: "Write",
+      tool_input: { file_path: "/a/n.ts", content: "line1\nline2" },
+    });
+    expect(d.edit).toEqual({ filePath: "/a/n.ts", hunks: [{ oldText: "", newText: "line1\nline2" }] });
+  });
+
+  it("maps MultiEdit edits[] to hunks in order", () => {
+    const [d] = claudeHookToDeltas({
+      hook_event_name: "PreToolUse",
+      tool_name: "MultiEdit",
+      tool_input: { file_path: "/a/m.ts", edits: [{ old_string: "a", new_string: "b" }, { old_string: "c", new_string: "d" }] },
+    });
+    expect(d.edit).toEqual({ filePath: "/a/m.ts", hunks: [{ oldText: "a", newText: "b" }, { oldText: "c", newText: "d" }] });
+  });
+
+  it("does not attach an edit payload for non-edit tools", () => {
+    const [d] = claudeHookToDeltas({ hook_event_name: "PreToolUse", tool_name: "Bash", tool_input: { command: "ls" } });
+    expect(d.edit).toBeUndefined();
+  });
+
   it("emits a tool_result for PostToolUse", () => {
     expect(claudeHookToDeltas({
       hook_event_name: "PostToolUse",

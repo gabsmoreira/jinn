@@ -31,6 +31,8 @@ export interface Message {
   toolId?: string
   /** Short summary of the tool's input/target (e.g. "npm test"), rendered as "Bash · npm test". */
   toolInput?: string
+  /** Normalized file-edit payload for Edit/Write/MultiEdit — drives the in-chat diff. */
+  toolEdit?: { filePath: string; hunks: { oldText: string; newText: string }[]; truncated?: boolean }
   blocks?: ChatBlock[]
 }
 
