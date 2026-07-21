@@ -74,6 +74,7 @@ describe("groupTerminalsByAgent", () => {
     const out = groupTerminalsByAgent(many, { cap: 5 });
     expect(out[0].visibleTasks).toHaveLength(5);
     expect(out[0].hiddenCount).toBe(3);
+    expect(out[0].tasks).toHaveLength(8); // full list retained for "show more"
   });
 
   it("buckets home-less/direct sessions under 'you' and orders running groups first", () => {

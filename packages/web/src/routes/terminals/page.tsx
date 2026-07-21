@@ -70,12 +70,15 @@ export default function TerminalsPage() {
     [rawSessions],
   )
   const [selectedId, setSelectedId] = useState<string | null>(null)
+  // Agents whose task list has been expanded past the cap via "+N more".
+  const [revealed, setRevealed] = useState<Set<string>>(new Set())
 
   // Keep a valid selection: default to the top (running-first) session; re-point
-  // if the current one drops out of the list.
+  // if the current one drops out of the list. Candidates include all non-archived
+  // tasks (not just the capped slice) so a revealed selection isn't reset.
   useEffect(() => {
     const candidateIds = groups
-      .flatMap((g) => [g.home?.id, ...g.visibleTasks.map((t) => t.id)])
+      .flatMap((g) => [g.home?.id, ...g.tasks.map((t) => t.id)])
       .filter(Boolean) as string[]
     if (candidateIds.length === 0) {
       setSelectedId(null)
@@ -116,13 +119,16 @@ export default function TerminalsPage() {
                     {g.home ? (
                       <RailRow s={g.home} selected={g.home.id === selectedId} onSelect={setSelectedId} label="💬 Home chat" />
                     ) : null}
-                    {g.visibleTasks.map((s) => (
+                    {(revealed.has(g.agent) ? g.tasks : g.visibleTasks).map((s) => (
                       <RailRow key={s.id} s={s} selected={s.id === selectedId} onSelect={setSelectedId} />
                     ))}
-                    {g.hiddenCount > 0 ? (
-                      <div className="px-9 py-1 text-[length:var(--text-caption2)] text-[var(--text-tertiary)]">
+                    {g.hiddenCount > 0 && !revealed.has(g.agent) ? (
+                      <button
+                        onClick={() => setRevealed((prev) => new Set(prev).add(g.agent))}
+                        className="w-full py-1 pl-9 pr-3 text-left text-[length:var(--text-caption2)] text-[var(--text-tertiary)] transition-colors hover:text-[var(--text-secondary)]"
+                      >
                         +{g.hiddenCount} more
-                      </div>
+                      </button>
                     ) : null}
                   </div>
                 )

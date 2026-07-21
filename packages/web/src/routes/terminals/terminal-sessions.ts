@@ -30,6 +30,8 @@ export function selectTerminalSessions<T extends TerminalRailSession>(sessions: 
 export interface AgentTerminalGroup<T> {
   agent: string
   home: T | null
+  /** All non-archived tasks (uncapped, running-first) — lets the rail reveal past the cap. */
+  tasks: T[]
   visibleTasks: T[]
   hiddenCount: number
   hasRunning: boolean
@@ -57,6 +59,7 @@ export function groupTerminalsByAgent<
     groups.push({
       agent,
       home,
+      tasks,
       visibleTasks: tasks.slice(0, cap),
       hiddenCount: Math.max(0, tasks.length - cap),
       hasRunning: live.some((r) => r.status === 'running'),
