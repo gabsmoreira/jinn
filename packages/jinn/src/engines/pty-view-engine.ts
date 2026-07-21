@@ -6,7 +6,7 @@
  */
 
 /** Out-of-band control event for PTY subscribers (e.g. respawn → client clears xterm). */
-export type PtyControlEvent = { type: "reset" };
+export type PtyControlEvent = { type: "reset" } | { type: "bg_agent" };
 
 export interface PtyIdleSpawnOpts {
   /** Engine-side conversation/session id to resume into the idle PTY, if any. */
@@ -32,4 +32,8 @@ export interface PtyViewEngine {
   writeStdin(sessionId: string, text: string): void;
   writeRaw(sessionId: string, data: string): void;
   resizePty(sessionId: string, cols: number, rows: number): void;
+  /** Clear a session's background-agent block so the next spawn is attempted again
+   *  (after the user forks or has cleared the agent in `claude agents`). Optional —
+   *  only the claude engine implements it in v1. */
+  clearBgAgentBlock?(sessionId: string): void;
 }

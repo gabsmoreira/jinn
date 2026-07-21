@@ -69,7 +69,7 @@ export class PtyStreamManager {
   /** Wire a freshly-spawned PTY's output into the session's scrollback ring buffer
    *  + live subscribers; notify subscribers with a reset event on respawn; absorb
    *  node-pty socket errors. `onData` (optional) runs first on every data event. */
-  attach(sessionId: string, proc: pty.IPty, onData?: () => void): void {
+  attach(sessionId: string, proc: pty.IPty, onData?: (d: string) => void): void {
     const stream = this.streamFor(sessionId);
     // Distinguish initial spawn from respawn via a per-stream flag rather than
     // subscriber count — clients open their WS on mount (before the user sends
@@ -93,7 +93,7 @@ export class PtyStreamManager {
     });
 
     proc.onData((d) => {
-      onData?.();
+      onData?.(d);
       // Convert string to Buffer once; push to ring; evict head until under cap.
       const chunk = Buffer.from(d, "utf-8");
       stream.chunks.push(chunk);
@@ -127,6 +127,16 @@ export class PtyStreamManager {
     s.chunks = [];
     s.totalBytes = 0;
     if (s.subscribers.size === 0) this.streams.delete(sessionId);
+  }
+
+  /** Fan an out-of-band control event to the session's current subscribers (e.g. a
+   *  bg_agent notice). No-op if the session has no stream entry. */
+  pushControl(sessionId: string, event: PtyControlEvent): void {
+    const s = this.streams.get(sessionId);
+    if (!s) return;
+    for (const sub of s.subscribers) {
+      try { sub.control?.(event); } catch { /* ignore subscriber errors */ }
+    }
   }
 
   /** Append-only capped output buffer for the session's current/most-recent PTY (for
