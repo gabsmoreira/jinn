@@ -28,43 +28,45 @@ export function selectTerminalSessions<T extends TerminalRailSession>(sessions: 
 }
 
 export interface AgentTerminalGroup<T> {
-  agent: string;
-  home: T | null;
-  visibleTasks: T[];
-  hiddenCount: number;
-  hasRunning: boolean;
+  agent: string
+  home: T | null
+  visibleTasks: T[]
+  hiddenCount: number
+  hasRunning: boolean
 }
 
 /** Group CLI-capable sessions by agent for the Terminals+ rail: home chat pinned,
  *  non-archived tasks running-first then by activity, capped with a hidden count.
- *  Groups with a running task float to the top. Pure — unit-tested. */
+ *  Groups with a running (non-archived) session float to the top. Pure — unit-tested. */
 export function groupTerminalsByAgent<
   T extends TerminalRailSession & { id: string; employee?: string; sessionRole?: string; lifecycleState?: string | null },
 >(sessions: T[], opts?: { cap?: number }): AgentTerminalGroup<T>[] {
-  const cap = opts?.cap ?? 5;
-  const filtered = selectTerminalSessions(sessions); // CLI engines, running-first, activity
-  const byAgent = new Map<string, T[]>();
+  const cap = opts?.cap ?? 5
+  const filtered = selectTerminalSessions(sessions)
+  const byAgent = new Map<string, T[]>()
   for (const s of filtered) {
-    const key = s.employee || "you";
-    (byAgent.get(key) ?? byAgent.set(key, []).get(key)!).push(s);
+    const key = s.employee || 'you'
+    if (!byAgent.has(key)) byAgent.set(key, [])
+    byAgent.get(key)!.push(s)
   }
-  const groups: AgentTerminalGroup<T>[] = [];
+  const groups: AgentTerminalGroup<T>[] = []
   for (const [agent, rows] of byAgent) {
-    const home = rows.find((r) => r.sessionRole === "home") ?? null;
-    const tasks = rows.filter((r) => r.sessionRole !== "home" && r.lifecycleState !== "archived");
+    const home = rows.find((r) => r.sessionRole === 'home') ?? null
+    const tasks = rows.filter((r) => r.sessionRole !== 'home' && r.lifecycleState !== 'archived')
+    const live = home ? [home, ...tasks] : tasks
     groups.push({
       agent,
       home,
       visibleTasks: tasks.slice(0, cap),
       hiddenCount: Math.max(0, tasks.length - cap),
-      hasRunning: rows.some((r) => r.status === "running"),
-    });
+      hasRunning: live.some((r) => r.status === 'running'),
+    })
   }
   const activity = (g: AgentTerminalGroup<T>) =>
-    (g.home?.lastActivity || g.visibleTasks[0]?.lastActivity || "");
+    g.home?.lastActivity || g.visibleTasks[0]?.lastActivity || ''
   groups.sort((a, b) => {
-    if (a.hasRunning !== b.hasRunning) return a.hasRunning ? -1 : 1;
-    return activity(b).localeCompare(activity(a));
-  });
-  return groups;
+    if (a.hasRunning !== b.hasRunning) return a.hasRunning ? -1 : 1
+    return activity(b).localeCompare(activity(a))
+  })
+  return groups
 }

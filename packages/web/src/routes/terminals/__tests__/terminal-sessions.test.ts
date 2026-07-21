@@ -83,4 +83,25 @@ describe("groupTerminalsByAgent", () => {
     ]);
     expect(out.map(g => g.agent)).toEqual(["you", "fw"]); // running group floats up
   });
+
+  it('orders groups by the group-level sort, not Map insertion order', () => {
+    // fw's highest-activity row is archived (excluded from visibleTasks), so fw's
+    // group activity (1) is below hvac's (5) even though fw's archived row (9) makes
+    // fw insert first. The group sort must still put hvac before fw.
+    const out = groupTerminalsByAgent([
+      t('a-arch', 'fw', 'task', 'idle', '9', 'archived'),
+      t('b1', 'hvac', 'task', 'idle', '5'),
+      t('a1', 'fw', 'task', 'idle', '1'),
+    ])
+    expect(out.map((g) => g.agent)).toEqual(['hvac', 'fw'])
+  })
+
+  it('hasRunning ignores archived sessions', () => {
+    const out = groupTerminalsByAgent([
+      t('arch-run', 'fw', 'task', 'running', '9', 'archived'),
+      t('live', 'fw', 'task', 'idle', '1'),
+    ])
+    const fw = out.find((g) => g.agent === 'fw')!
+    expect(fw.hasRunning).toBe(false)
+  })
 })
