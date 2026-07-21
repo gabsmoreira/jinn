@@ -686,7 +686,9 @@ export function getOrCreateHomeChat(employee: string, engine = "claude"): Sessio
       employee, sessionRole: "home", title: `${employee} — home`,
     });
   } catch (err) {
-    // Lost a race to the unique index — the other creator won; return theirs.
+    // Only a lost race against idx_home_per_agent should fall through to a re-query;
+    // any other error is a real failure and must surface.
+    if ((err as { code?: string }).code !== "SQLITE_CONSTRAINT_UNIQUE") throw err;
     const row = find();
     if (row) return rowToSession(row);
     throw err;

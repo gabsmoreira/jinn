@@ -30,10 +30,10 @@ describe("session task-model round-trip", () => {
 
 describe("getOrCreateHomeChat", () => {
   it("creates one home chat and returns the same one on repeat", () => {
-    const a = getOrCreateHomeChat("firmware-lead");
+    const a = getOrCreateHomeChat("solo-lead-a");
     expect(a.sessionRole).toBe("home");
-    expect(a.employee).toBe("firmware-lead");
-    const b = getOrCreateHomeChat("firmware-lead");
+    expect(a.employee).toBe("solo-lead-a");
+    const b = getOrCreateHomeChat("solo-lead-a");
     expect(b.id).toBe(a.id); // single-home invariant
   });
   it("different agents get different home chats", () => {
