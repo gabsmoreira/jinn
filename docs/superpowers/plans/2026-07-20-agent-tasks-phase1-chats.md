@@ -18,6 +18,7 @@ Spec: `docs/superpowers/specs/2026-07-20-agent-tasks-and-kanban-execution-design
 - Verify a package with: `nvm use 24 && corepack pnpm -C packages/<pkg> typecheck && corepack pnpm -C packages/<pkg> test`.
 - Branch: `feat/agent-tasks-model` (already created). Commit trailers as per repo convention.
 - **Legacy rows must migrate cleanly**: `session_role='task'`, `task_kind='execution'`, `lifecycle_state=NULL` (derived).
+- **Test isolation (mandatory — a violation destroyed real data once):** every jinn-package test run MUST use a throwaway home — `export JINN_HOME="$(mktemp -d)"` before any vitest/test command. DB-touching tests set their own per-file tmp `JINN_HOME` and use a **dynamic** `await import("../registry.js")` (static imports hoist above the env set and resolve `SESSIONS_DB` from the real `~/.jinn`). Never run destructive commands against `~/.jinn` or any real data; on unexpected data, STOP and report — do not "clean it up".
 
 ## Scope
 
@@ -448,9 +449,9 @@ git commit -m "feat(sessions): isArchiveEligible pure helper (7-day idle default
 
 - [ ] **Step 1: Write the failing test** (append to `home-chat.test.ts`)
 
-```typescript
-import { getOrCreateHomeChat } from "../registry.js";
+> Append to the EXISTING `home-chat.test.ts`. It sets a per-file tmp `JINN_HOME` then does `const { createSession, updateSession, getSession } = await import("../registry.js")`. **Add `getOrCreateHomeChat` to that existing destructured import list** and call it directly (no prefix). Do NOT add a static `import ... from "../registry.js"` — a static import hoists above the `JINN_HOME` set and resolves `SESSIONS_DB` from the real `~/.jinn`.
 
+```typescript
 describe("getOrCreateHomeChat", () => {
   it("creates one home chat and returns the same one on repeat", () => {
     const a = getOrCreateHomeChat("firmware-lead");
