@@ -105,4 +105,26 @@ describe("groupTerminalsByAgent", () => {
     const fw = out.find((g) => g.agent === 'fw')!
     expect(fw.hasRunning).toBe(false)
   })
+
+  it("floats pinned tasks to the top of their group (stable otherwise)", () => {
+    const out = groupTerminalsByAgent(
+      [
+        t("a", "fw", "task", "idle", "3"),
+        t("b", "fw", "task", "idle", "2"),
+        t("c", "fw", "task", "idle", "1"),
+      ],
+      { pinnedIds: new Set(["c"]) },
+    );
+    // "c" is pinned → first; "a","b" keep their activity order after it.
+    expect(out[0].tasks.map((x) => x.id)).toEqual(["c", "a", "b"]);
+    expect(out[0].visibleTasks.map((x) => x.id)).toEqual(["c", "a", "b"]);
+  });
+
+  it("without pinnedIds, ordering is unchanged", () => {
+    const out = groupTerminalsByAgent([
+      t("a", "fw", "task", "idle", "3"),
+      t("b", "fw", "task", "idle", "1"),
+    ]);
+    expect(out[0].tasks.map((x) => x.id)).toEqual(["a", "b"]);
+  });
 })

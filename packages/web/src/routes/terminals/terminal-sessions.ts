@@ -42,8 +42,9 @@ export interface AgentTerminalGroup<T> {
  *  Groups with a running (non-archived) session float to the top. Pure — unit-tested. */
 export function groupTerminalsByAgent<
   T extends TerminalRailSession & { id: string; employee?: string; sessionRole?: string; lifecycleState?: string | null },
->(sessions: T[], opts?: { cap?: number }): AgentTerminalGroup<T>[] {
+>(sessions: T[], opts?: { cap?: number; pinnedIds?: Set<string> }): AgentTerminalGroup<T>[] {
   const cap = opts?.cap ?? 5
+  const pinnedIds = opts?.pinnedIds
   const filtered = selectTerminalSessions(sessions)
   const byAgent = new Map<string, T[]>()
   for (const s of filtered) {
@@ -54,7 +55,12 @@ export function groupTerminalsByAgent<
   const groups: AgentTerminalGroup<T>[] = []
   for (const [agent, rows] of byAgent) {
     const home = rows.find((r) => r.sessionRole === 'home') ?? null
-    const tasks = rows.filter((r) => r.sessionRole !== 'home' && r.lifecycleState !== 'archived')
+    let tasks = rows.filter((r) => r.sessionRole !== 'home' && r.lifecycleState !== 'archived')
+    if (pinnedIds && pinnedIds.size > 0) {
+      // Stable sort (ES2019+): pinned ids first, otherwise keep the running-first /
+      // activity order selectTerminalSessions already produced.
+      tasks = [...tasks].sort((a, b) => (pinnedIds.has(b.id) ? 1 : 0) - (pinnedIds.has(a.id) ? 1 : 0))
+    }
     const live = home ? [home, ...tasks] : tasks
     groups.push({
       agent,
