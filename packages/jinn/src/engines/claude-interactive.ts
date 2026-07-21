@@ -564,8 +564,7 @@ export class InteractiveClaudeEngine implements InterruptibleEngine, PtyViewEngi
   /** Rolling tail of recent PTY output per session, so the refusal marker is caught
    *  even when it spans two data chunks. */
   private bgScanCarry = new Map<string, string>();
-  /** Spawn timestamp + consecutive fast-exit count per session (fast-exit backstop). */
-  private spawnAtMs = new Map<string, number>();
+  /** Consecutive fast-exit count per session (fast-exit backstop). */
   private exitRecords = new Map<string, ExitRecord>();
 
   constructor(
@@ -581,7 +580,6 @@ export class InteractiveClaudeEngine implements InterruptibleEngine, PtyViewEngi
       this.lastOutputAt.delete(id);
       this.spawnParams.delete(id);
       this.bgScanCarry.delete(id);
-      this.spawnAtMs.delete(id);
       // NOTE: do NOT clear bgAgentBlocked/exitRecords here — the block must survive the
       // failed PTY's release (that's what stops the respawn loop); clearBgAgentBlock owns it.
       // The PTY (and its SSE proxy) died — any in-flight counts are moot.
@@ -960,22 +958,12 @@ export class InteractiveClaudeEngine implements InterruptibleEngine, PtyViewEngi
    *  `proxy` (the per-PTY SSE forward proxy) is torn down when this PTY exits. */
   private wireProcToStream(jinnSessionId: string, proc: pty.IPty, proxy?: SsePtyProxy): PtyHandle {
     const handle = createPtyHandle(proc);
-    this.spawnAtMs.set(jinnSessionId, Date.now());
+    const spawnedAt = Date.now();
     this.streams.attach(jinnSessionId, proc, (d) => {
       this.lastOutputAt.set(jinnSessionId, Date.now());
       this.scanForBgAgent(jinnSessionId, d);
     });
     proc.onExit(() => {
-      const spawnMs = this.spawnAtMs.get(jinnSessionId);
-      if (spawnMs !== undefined) {
-        const { record, tripped } = registerExit(this.exitRecords.get(jinnSessionId), Date.now() - spawnMs);
-        this.exitRecords.set(jinnSessionId, record);
-        if (tripped && !this.bgAgentBlocked.has(jinnSessionId)) {
-          this.bgAgentBlocked.add(jinnSessionId);
-          this.streams.pushControl(jinnSessionId, { type: "bg_agent" });
-          logger.warn(`InteractiveClaudeEngine: session ${jinnSessionId} PTY fast-exited ${record.count}× — blocking respawn`);
-        }
-      }
       // Session-level cleanup MUST be identity-gated. In a kill->respawn race the
       // lifecycle/stream entries already point at the NEW PTY by the time THIS
       // (old, killed) PTY's exit fires. releaseSession is keyed by sessionId, so an
@@ -984,6 +972,16 @@ export class InteractiveClaudeEngine implements InterruptibleEngine, PtyViewEngi
       // the session's CURRENT warm handle means the cleanup is ours to do.
       const isCurrent = this.lifecycle.getWarm(jinnSessionId) === handle;
       if (isCurrent) {
+        // Fast-exit backstop — timed by THIS PTY's own spawn (never a session-keyed
+        // slot a newer PTY could clobber) and only for the CURRENT PTY, so a stale
+        // PTY exiting late in a kill->respawn race can't misclassify a healthy exit.
+        const { record, tripped } = registerExit(this.exitRecords.get(jinnSessionId), Date.now() - spawnedAt);
+        this.exitRecords.set(jinnSessionId, record);
+        if (tripped && !this.bgAgentBlocked.has(jinnSessionId)) {
+          this.bgAgentBlocked.add(jinnSessionId);
+          this.streams.pushControl(jinnSessionId, { type: "bg_agent" });
+          logger.warn(`InteractiveClaudeEngine: session ${jinnSessionId} PTY fast-exited ${record.count}× — blocking respawn`);
+        }
         this.streams.onPtyExit(jinnSessionId);
         // Release the lifecycle entry so the dead handle isn't picked up by a future
         // run() as "warm" — that would inject into a corpse.
@@ -1026,7 +1024,6 @@ export class InteractiveClaudeEngine implements InterruptibleEngine, PtyViewEngi
     this.bgAgentBlocked.delete(jinnSessionId);
     this.exitRecords.delete(jinnSessionId);
     this.bgScanCarry.delete(jinnSessionId);
-    this.spawnAtMs.delete(jinnSessionId);
   }
 
   /** node-pty spawn of the genuine claude binary (no -p → cc_entrypoint=cli).

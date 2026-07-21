@@ -69,4 +69,22 @@ describe("InteractiveClaudeEngine — bg-agent resume guard", () => {
     expect(ptys).toHaveLength(2);
     unsub();
   });
+
+  it("trips the fast-exit backstop after repeated immediate PTY exits", async () => {
+    const events: PtyControlEvent[] = [];
+    const unsub = engine.subscribeOutput(SID, () => {}, (e) => events.push(e));
+    // Three spawn → immediate-exit cycles (each livedMs ≈ 0 < FAST_EXIT_MS).
+    for (let i = 0; i < 3; i++) {
+      engine.ensureIdleSpawn(SID, { engineSessionId: "e1", cols: 80, rows: 24 } as any);
+      await flush();
+      ptys[ptys.length - 1]._exitCb!({ exitCode: 1 });
+      await flush();
+    }
+    expect(events).toContainEqual({ type: "bg_agent" });
+    const before = ptys.length;
+    engine.ensureIdleSpawn(SID, { engineSessionId: "e1", cols: 80, rows: 24 } as any);
+    await flush();
+    expect(ptys.length).toBe(before); // blocked — no further respawn
+    unsub();
+  });
 });
