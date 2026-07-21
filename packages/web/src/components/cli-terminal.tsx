@@ -569,24 +569,32 @@ export const CliTerminal = forwardRef<CliTerminalHandle, { sessionId: string; in
             <button
               disabled={duplicate.isPending}
               onClick={async () => {
-                const res = await duplicate.mutateAsync(sessionId);
-                setBgAgentSafely(false);
-                const newId = (res as any)?.session?.id ?? (res as any)?.id;
-                if (newId) onForked?.(newId);
+                try {
+                  const res = await duplicate.mutateAsync(sessionId);
+                  const newId = (res as any)?.session?.id ?? (res as any)?.id;
+                  setBgAgentSafely(false);
+                  if (newId) onForked?.(newId);
+                } catch (err) {
+                  // Match the codebase's duplicate-failure UX (chat-sidebar / chat page):
+                  // surface the error and leave the panel open so the user can retry.
+                  window.alert(`Fork failed: ${err instanceof Error ? err.message : String(err)}`);
+                }
               }}
               style={{ padding: "0.35rem 0.9rem", borderRadius: 6, background: "var(--accent)", color: "#fff", fontSize: 13 }}
             >
               {duplicate.isPending ? "Forking…" : "Fork a copy"}
             </button>
             <button
+              disabled={duplicate.isPending}
               onClick={() => {
                 const ws = wsRef.current;
                 if (ws && ws.readyState === WebSocket.OPEN) ws.send(JSON.stringify({ type: "retry" }));
                 setBgAgentSafely(false);
-                // The backend deliberately does NOT respawn at a default geometry
-                // (mobile-squish guard) — it only spawns on a real resize frame.
-                // Force one via the same synthetic-resize mechanism scheduleFit
-                // already listens for, so a real geometry frame follows the retry.
+                // The retry message respawns using this connection's cached geometry;
+                // but if no resize has landed on this connection yet, the backend skips
+                // the spawn (mobile-squish guard against a default 120×40). Dispatch a
+                // synthetic resize as a safety net so a real geometry frame follows and
+                // drives the spawn in that case.
                 window.dispatchEvent(new Event("resize"));
               }}
               style={{ padding: "0.35rem 0.9rem", borderRadius: 6, background: "var(--fill-secondary)", color: "var(--text-primary)", fontSize: 13 }}
