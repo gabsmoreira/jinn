@@ -36,6 +36,29 @@ agent *requires* separate sessions. We therefore **keep per-task isolation** (fo
 parallelism + clean audit) and fix the human-facing surface + lifecycle instead. The
 proliferation is a navigation/lifecycle problem, not a data-model problem.
 
+### 2.1 Agents, leads & the task tree (assignment model)
+
+**Leads are optional coordinators, never mandatory routers.** Two hierarchies coexist:
+
+- **Org hierarchy (people)** — who reports to whom (`org/<dept>/board.json`). Persistent.
+  Provides *defaults and suggestions* for assignment, nothing more.
+- **Task tree (work)** — who spawned this unit of work, per task, via the existing
+  `parent_session_id` link. May or may not follow the org hierarchy.
+
+**A task is assignable to any agent** (the existing `employee` column). Assign directly to
+a specialist when the work is concrete and single-owner; assign to a lead when it needs
+decomposition, routing, cross-specialist coordination, or domain review. **Routing through
+a lead is never enforced** — bypassing it is a first-class path, and it *is* the default
+for clear single-owner work (a lead would be pure overhead there).
+
+**Two kinds of task** (`task_kind`), with different done-gates:
+- **`execution`** (typically a specialist) — implements in an isolated worktree; gated by
+  the objective **acceptance command** (Phase 2, §5.3).
+- **`coordination`** (typically a lead) — decomposes the goal, spawns specialist
+  **sub-tasks** (children in the task tree), tracks + reviews them, and reports one
+  aggregated outcome up to its home chat. Its gate = **all child tasks passed their gates
+  + the lead's review** — the AND of its children's gates, not a build command.
+
 ## 3. Data model (additive — reuse the `sessions` table)
 
 A "task" is **not** a new entity — it is a session with a role + lifecycle. Add columns
@@ -44,6 +67,7 @@ to `sessions` (jinn's migration style is additive + tested):
 | column | values | notes |
 |---|---|---|
 | `session_role` | `home` \| `task` | default `task`; NULL treated as `task` for legacy rows. Exactly one `home` per agent. |
+| `task_kind` | `execution` \| `coordination` | default `execution`. Coordination tasks (leads) spawn sub-tasks; gate = children passed + review (see §2.1). |
 | `lifecycle_state` | `todo` \| `running` \| `done` \| `archived` | derived from `status`/activity where possible; explicit for archive. |
 | `brief` | text | the task's well-defined goal (distinct from auto-generated `title`). |
 | `outcome` | text | short completion summary posted into the home chat. |
@@ -54,8 +78,10 @@ to `sessions` (jinn's migration style is additive + tested):
 | `pr_url` (P2) | text | PR opened on green. |
 | `attempts` (P2) | int | self-repair attempts used. |
 
-Legacy rows migrate to `role=task`, `lifecycle_state` derived from `status`. Home chats
-are created lazily (see 4.1).
+Legacy rows migrate to `role=task`, `task_kind=execution`, `lifecycle_state` derived from
+`status`. Home chats are created lazily (see 4.1). **Assignee** = the existing `employee`
+column (any agent); **the task tree** = the existing `parent_session_id` link (a
+coordination task's children point to it). No new tables.
 
 ---
 
@@ -131,6 +157,9 @@ isolated worktree, and runs the agent autonomously.
   pass = done.** The agent cannot fake this — it is the objective definition of done.
 - Reviewer-agent as a *secondary* check for fuzzy/no-test tasks is a **later** option,
   not in the MVP.
+- **Execution vs coordination gates:** the command gate above applies to `execution`
+  tasks. A `coordination` task (a lead) has no command — it is done when **all its child
+  tasks have passed their gates** and the lead's review is satisfied (see §2.1).
 
 ### 5.4 Card lifecycle + bounded self-repair
 `To-do → Running (worktree + agent) → Validating (gate) → Done (pass) / Blocked (fail)`.
