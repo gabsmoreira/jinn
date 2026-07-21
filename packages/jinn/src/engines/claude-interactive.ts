@@ -14,6 +14,7 @@ import type { HookRegistry, HookPayload } from "../gateway/hook-registry.js";
 import { SsePtyProxy, MAIN_AGENT_SENTINEL, type SseDataEvent, type UpstreamActivityInfo } from "./sse-pty-proxy.js";
 import { neutralizeForPaste } from "../shared/skill-commands.js";
 import { buildPromptWithPlatformContext } from "./platform-context.js";
+import { isBgAgentRefusal, registerExit, BG_AGENT_MARKER, type ExitRecord } from "./bg-agent-guard.js";
 
 export type { PtyControlEvent } from "./pty-view-engine.js";
 
@@ -556,6 +557,16 @@ export class InteractiveClaudeEngine implements InterruptibleEngine, PtyViewEngi
   private backgroundActivityCb?: (jinnSessionId: string, info: UpstreamActivityInfo | null) => void;
   /** Test override for the post-settle clear quiet window (default 10s). */
   backgroundClearQuietMs = BACKGROUND_CLEAR_QUIET_MS;
+  /** Sessions whose --resume was refused because Claude holds the session as a
+   *  background agent (or that fast-exit-looped). ensureIdleSpawn skips these until
+   *  clearBgAgentBlock. */
+  private bgAgentBlocked = new Set<string>();
+  /** Rolling tail of recent PTY output per session, so the refusal marker is caught
+   *  even when it spans two data chunks. */
+  private bgScanCarry = new Map<string, string>();
+  /** Spawn timestamp + consecutive fast-exit count per session (fast-exit backstop). */
+  private spawnAtMs = new Map<string, number>();
+  private exitRecords = new Map<string, ExitRecord>();
 
   constructor(
     private lifecycle: PtyLifecycleManager,
@@ -569,6 +580,10 @@ export class InteractiveClaudeEngine implements InterruptibleEngine, PtyViewEngi
     this.lifecycle.onRelease((id) => {
       this.lastOutputAt.delete(id);
       this.spawnParams.delete(id);
+      this.bgScanCarry.delete(id);
+      this.spawnAtMs.delete(id);
+      // NOTE: do NOT clear bgAgentBlocked/exitRecords here — the block must survive the
+      // failed PTY's release (that's what stops the respawn loop); clearBgAgentBlock owns it.
       // The PTY (and its SSE proxy) died — any in-flight counts are moot.
       this.clearBackground(id);
     });
@@ -945,8 +960,22 @@ export class InteractiveClaudeEngine implements InterruptibleEngine, PtyViewEngi
    *  `proxy` (the per-PTY SSE forward proxy) is torn down when this PTY exits. */
   private wireProcToStream(jinnSessionId: string, proc: pty.IPty, proxy?: SsePtyProxy): PtyHandle {
     const handle = createPtyHandle(proc);
-    this.streams.attach(jinnSessionId, proc, () => this.lastOutputAt.set(jinnSessionId, Date.now()));
+    this.spawnAtMs.set(jinnSessionId, Date.now());
+    this.streams.attach(jinnSessionId, proc, (d) => {
+      this.lastOutputAt.set(jinnSessionId, Date.now());
+      this.scanForBgAgent(jinnSessionId, d);
+    });
     proc.onExit(() => {
+      const spawnMs = this.spawnAtMs.get(jinnSessionId);
+      if (spawnMs !== undefined) {
+        const { record, tripped } = registerExit(this.exitRecords.get(jinnSessionId), Date.now() - spawnMs);
+        this.exitRecords.set(jinnSessionId, record);
+        if (tripped && !this.bgAgentBlocked.has(jinnSessionId)) {
+          this.bgAgentBlocked.add(jinnSessionId);
+          this.streams.pushControl(jinnSessionId, { type: "bg_agent" });
+          logger.warn(`InteractiveClaudeEngine: session ${jinnSessionId} PTY fast-exited ${record.count}× — blocking respawn`);
+        }
+      }
       // Session-level cleanup MUST be identity-gated. In a kill->respawn race the
       // lifecycle/stream entries already point at the NEW PTY by the time THIS
       // (old, killed) PTY's exit fires. releaseSession is keyed by sessionId, so an
@@ -973,6 +1002,31 @@ export class InteractiveClaudeEngine implements InterruptibleEngine, PtyViewEngi
       }
     });
     return handle;
+  }
+
+  /** Watch PTY output for Claude's background-agent resume refusal. On match, block
+   *  further respawns and notify the viewer. Keeps a short carry so a marker split
+   *  across chunks is still caught. */
+  private scanForBgAgent(jinnSessionId: string, d: string): void {
+    if (this.bgAgentBlocked.has(jinnSessionId)) return;
+    const combined = (this.bgScanCarry.get(jinnSessionId) ?? "") + d;
+    if (isBgAgentRefusal(combined)) {
+      this.bgAgentBlocked.add(jinnSessionId);
+      this.bgScanCarry.delete(jinnSessionId);
+      this.streams.pushControl(jinnSessionId, { type: "bg_agent" });
+      logger.info(`InteractiveClaudeEngine: bg-agent resume refusal for session ${jinnSessionId} — blocking respawn`);
+      return;
+    }
+    // Retain only enough tail to bridge a chunk boundary.
+    this.bgScanCarry.set(jinnSessionId, combined.slice(-BG_AGENT_MARKER.length));
+  }
+
+  /** Clear a session's bg-agent block (Retry / after fork). Next spawn is attempted. */
+  clearBgAgentBlock(jinnSessionId: string): void {
+    this.bgAgentBlocked.delete(jinnSessionId);
+    this.exitRecords.delete(jinnSessionId);
+    this.bgScanCarry.delete(jinnSessionId);
+    this.spawnAtMs.delete(jinnSessionId);
   }
 
   /** node-pty spawn of the genuine claude binary (no -p → cc_entrypoint=cli).
@@ -1020,6 +1074,7 @@ export class InteractiveClaudeEngine implements InterruptibleEngine, PtyViewEngi
     if (this.lifecycle.getWarm(jinnSessionId)) return;
     if (this.active.has(jinnSessionId)) return; // a turn is starting/running — let run() spawn
     if (this.idleSpawning.has(jinnSessionId)) return; // an idle spawn is already in flight
+    if (this.bgAgentBlocked.has(jinnSessionId)) return; // resume refused — await Fork/Retry
     this.idleSpawning.add(jinnSessionId);
 
     const bin = resolveBin("claude", opts.bin);
