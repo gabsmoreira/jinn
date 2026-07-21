@@ -148,9 +148,11 @@ export function attachPtyWebSocket(ws: WebSocket, sessionId: string, engine: Pty
       }
       applyViewing(msg.viewing);
     } else if (msg?.type === "retry") {
-      // The client's bg-agent panel asked to retry — clear the block and respawn at
-      // the last known geometry (falls back to the engine's cached geometry if we
-      // never saw a resize).
+      // The client's bg-agent panel asked to retry — clear the block, then respawn at
+      // this connection's last real geometry. We deliberately do NOT spawn before a
+      // resize has been seen (spawning at a default like 120×40 reintroduces the
+      // mobile "squished TUI" bug the lazy-spawn guards against); the client pairs the
+      // retry with a refit, so a resize arrives right after and drives the spawn.
       engine.clearBgAgentBlock?.(sessionId);
       if (lastCols > 0 && lastRows > 0) spawnIfNeeded(lastCols, lastRows);
     }
