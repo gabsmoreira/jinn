@@ -3,6 +3,7 @@ import { Terminal, type ITheme } from "@xterm/xterm";
 import { FitAddon } from "@xterm/addon-fit";
 import "@xterm/xterm/css/xterm.css";
 import { usePageVisibility } from "../hooks/use-page-visibility";
+import { useDuplicateSession } from "@/hooks/use-sessions";
 import { dlog } from "../lib/debug-log";
 import { nextReconnectDelay } from "../lib/ws-backoff";
 
@@ -117,7 +118,7 @@ export interface CliTerminalHandle {
   sendKey(data: string): void;
 }
 
-export const CliTerminal = forwardRef<CliTerminalHandle, { sessionId: string; interactive?: boolean }>(function CliTerminal({ sessionId, interactive = false }, ref) {
+export const CliTerminal = forwardRef<CliTerminalHandle, { sessionId: string; interactive?: boolean; onForked?: (newSessionId: string) => void }>(function CliTerminal({ sessionId, interactive = false, onForked }, ref) {
   const containerRef = useRef<HTMLDivElement>(null);
   const wsRef = useRef<WebSocket | null>(null);
   // Lets the visibility effect (a separate effect) recover a dead socket without
@@ -126,13 +127,25 @@ export const CliTerminal = forwardRef<CliTerminalHandle, { sessionId: string; in
   const visible = usePageVisibility();
   const [hasOutput, setHasOutput] = useState(false);
   const [reconnecting, setReconnecting] = useState(false);
+  // Whether the backend reports this session is running as a detached background
+  // agent (Claude Code `bg_agent` control frame) — the PTY can't be resumed here
+  // directly, so we show a Fork/Retry panel instead of a stuck blank terminal.
+  const [bgAgent, setBgAgent] = useState(false);
+  const duplicate = useDuplicateSession();
   // Mirror of `hasOutput` for use inside the WS onmessage closure, which is
   // created once per session and would otherwise see a stale `false`.
   const hasOutputRef = useRef(false);
+  // Mirror of `bgAgent` for the same stale-closure reason — set/read inside the
+  // onmessage closure created once per session.
+  const bgAgentRef = useRef(false);
   // A reset frame can flip hasOutput back to false; keep the ref in sync.
   const markHasOutput = (value: boolean) => {
     hasOutputRef.current = value;
     setHasOutput(value);
+  };
+  const setBgAgentSafely = (value: boolean) => {
+    bgAgentRef.current = value;
+    setBgAgent(value);
   };
 
   useImperativeHandle(ref, () => ({
@@ -208,12 +221,18 @@ export const CliTerminal = forwardRef<CliTerminalHandle, { sessionId: string; in
             markHasOutput(false);
             return;
           }
+          if (msg?.type === "bg_agent") {
+            setBgAgentSafely(true);
+            return;
+          }
         } catch {
           // Not JSON — fall through and treat as plain text output.
         }
+        if (bgAgentRef.current) setBgAgentSafely(false);
         term.write(forceTextGlyphs(e.data));
         if (!hasOutputRef.current && e.data.length > 0) markHasOutput(true);
       } else {
+        if (bgAgentRef.current) setBgAgentSafely(false);
         const bytes = new Uint8Array(e.data as ArrayBuffer);
         term.write(forceTextGlyphs(decoder.decode(bytes, { stream: true })));
         if (!hasOutputRef.current && bytes.byteLength > 0) markHasOutput(true);
@@ -525,6 +544,56 @@ export const CliTerminal = forwardRef<CliTerminalHandle, { sessionId: string; in
           }}
         >
           Waiting for the interactive PTY… send a message below to spawn it.
+        </div>
+      )}
+      {bgAgent && (
+        <div
+          style={{
+            position: "absolute",
+            inset: 0,
+            display: "flex",
+            flexDirection: "column",
+            alignItems: "center",
+            justifyContent: "center",
+            gap: "0.75rem",
+            padding: "1.5rem",
+            background: "var(--bg)",
+            textAlign: "center",
+          }}
+        >
+          <div style={{ color: "var(--text-secondary)", fontFamily: "var(--font-code)", fontSize: 13, maxWidth: 420 }}>
+            This session is running as a <strong>background agent</strong> in Claude Code, so it
+            can’t be resumed here directly.
+          </div>
+          <div style={{ display: "flex", gap: "0.5rem" }}>
+            <button
+              disabled={duplicate.isPending}
+              onClick={async () => {
+                const res = await duplicate.mutateAsync(sessionId);
+                setBgAgentSafely(false);
+                const newId = (res as any)?.session?.id ?? (res as any)?.id;
+                if (newId) onForked?.(newId);
+              }}
+              style={{ padding: "0.35rem 0.9rem", borderRadius: 6, background: "var(--accent)", color: "#fff", fontSize: 13 }}
+            >
+              {duplicate.isPending ? "Forking…" : "Fork a copy"}
+            </button>
+            <button
+              onClick={() => {
+                const ws = wsRef.current;
+                if (ws && ws.readyState === WebSocket.OPEN) ws.send(JSON.stringify({ type: "retry" }));
+                setBgAgentSafely(false);
+                // The backend deliberately does NOT respawn at a default geometry
+                // (mobile-squish guard) — it only spawns on a real resize frame.
+                // Force one via the same synthetic-resize mechanism scheduleFit
+                // already listens for, so a real geometry frame follows the retry.
+                window.dispatchEvent(new Event("resize"));
+              }}
+              style={{ padding: "0.35rem 0.9rem", borderRadius: 6, background: "var(--fill-secondary)", color: "var(--text-primary)", fontSize: 13 }}
+            >
+              Retry
+            </button>
+          </div>
         </div>
       )}
     </div>
