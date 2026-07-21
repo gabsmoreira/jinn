@@ -79,6 +79,8 @@ export function attachPtyWebSocket(ws: WebSocket, sessionId: string, engine: Pty
   // state and apply it the moment the first resize creates the entry.
   let pendingViewing: boolean | null = null;
   let entryReady = false;
+  let lastCols = 0;
+  let lastRows = 0;
 
   const applyViewingWhenReady = (viewing: boolean, attempts = 20) => {
     if (disconnected) return;
@@ -117,6 +119,8 @@ export function attachPtyWebSocket(ws: WebSocket, sessionId: string, engine: Pty
     } else if (msg?.type === "resize" && typeof msg.cols === "number" && typeof msg.rows === "number") {
       // First resize spawns the PTY at the real client geometry; subsequent
       // resizes just forward SIGWINCH to claude.
+      lastCols = msg.cols;
+      lastRows = msg.rows;
       const hadWarmPty = engine.hasWarmPty(sessionId);
       if (!spawnIfNeeded(msg.cols, msg.rows)) return;
       try {
@@ -143,6 +147,12 @@ export function attachPtyWebSocket(ws: WebSocket, sessionId: string, engine: Pty
         return;
       }
       applyViewing(msg.viewing);
+    } else if (msg?.type === "retry") {
+      // The client's bg-agent panel asked to retry — clear the block and respawn at
+      // the last known geometry (falls back to the engine's cached geometry if we
+      // never saw a resize).
+      engine.clearBgAgentBlock?.(sessionId);
+      if (lastCols > 0 && lastRows > 0) spawnIfNeeded(lastCols, lastRows);
     }
   });
 
