@@ -188,6 +188,11 @@ function rowToSession(row: Record<string, unknown>): Session {
     parentSessionId: (row.parent_session_id as string) ?? null,
     userId: (row.user_id as string) ?? null,
     effortLevel: (row.effort_level as string) ?? null,
+    sessionRole: ((row.session_role as string) ?? "task") as Session["sessionRole"],
+    taskKind: ((row.task_kind as string) ?? "execution") as Session["taskKind"],
+    lifecycleState: ((row.lifecycle_state as string) ?? null) as Session["lifecycleState"],
+    brief: (row.brief as string) ?? null,
+    outcome: (row.outcome as string) ?? null,
     status: row.status as Session['status'],
     totalCost: (row.total_cost as number) ?? 0,
     totalTurns: (row.total_turns as number) ?? 0,
@@ -559,6 +564,9 @@ export interface CreateSessionOpts {
    * scaffold junk. Still flattened/truncated via promptExcerptOf.
    */
   promptExcerpt?: string;
+  sessionRole?: "home" | "task";
+  taskKind?: "execution" | "coordination";
+  brief?: string;
 }
 
 function getNextSessionNumber(): number {
@@ -600,29 +608,16 @@ export function createSession(opts: CreateSessionOpts & { prompt?: string; porta
   const stmt = db.prepare(`
     INSERT INTO sessions (
       id, engine, source, source_ref, connector, session_key, reply_context, message_id, transport_meta,
-      employee, model, title, prompt_excerpt, parent_session_id, user_id, effort_level, status, created_at, last_activity
+      employee, model, title, prompt_excerpt, parent_session_id, user_id, effort_level,
+      session_role, task_kind, brief, status, created_at, last_activity
     )
-    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'idle', ?, ?)
+    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'idle', ?, ?)
   `);
   stmt.run(
-    id,
-    opts.engine,
-    opts.source,
-    opts.sourceRef,
-    connector,
-    sessionKey,
-    replyContext,
-    opts.messageId ?? null,
-    transportMeta,
-    opts.employee ?? null,
-    opts.model ?? null,
-    title,
-    promptExcerpt,
-    opts.parentSessionId ?? null,
-    opts.userId ?? null,
-    opts.effortLevel ?? null,
-    now,
-    now,
+    id, opts.engine, opts.source, opts.sourceRef, connector, sessionKey, replyContext,
+    opts.messageId ?? null, transportMeta, opts.employee ?? null, opts.model ?? null, title,
+    promptExcerpt, opts.parentSessionId ?? null, opts.userId ?? null, opts.effortLevel ?? null,
+    opts.sessionRole ?? "task", opts.taskKind ?? "execution", opts.brief ?? null, now, now,
   );
 
   return {
@@ -644,6 +639,11 @@ export function createSession(opts: CreateSessionOpts & { prompt?: string; porta
     parentSessionId: opts.parentSessionId ?? null,
     userId: opts.userId ?? null,
     effortLevel: opts.effortLevel ?? null,
+    sessionRole: opts.sessionRole ?? "task",
+    taskKind: opts.taskKind ?? "execution",
+    lifecycleState: null,
+    brief: opts.brief ?? null,
+    outcome: null,
     status: 'idle',
     totalCost: 0,
     totalTurns: 0,
@@ -685,6 +685,9 @@ export interface UpdateSessionFields {
   lastError?: string | null;
   title?: string;
   userId?: string | null;
+  lifecycleState?: "todo" | "running" | "done" | "archived" | null;
+  outcome?: string | null;
+  brief?: string | null;
 }
 
 export function updateSession(id: string, updates: UpdateSessionFields): Session | undefined {
@@ -749,6 +752,9 @@ export function updateSession(id: string, updates: UpdateSessionFields): Session
     sets.push('user_id = ?');
     values.push(updates.userId);
   }
+  if (updates.lifecycleState !== undefined) { sets.push('lifecycle_state = ?'); values.push(updates.lifecycleState); }
+  if (updates.outcome !== undefined) { sets.push('outcome = ?'); values.push(updates.outcome); }
+  if (updates.brief !== undefined) { sets.push('brief = ?'); values.push(updates.brief); }
 
   if (sets.length === 0) return getSession(id);
 

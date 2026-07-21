@@ -214,6 +214,16 @@ export interface Session {
   /** ≤140-char whitespace-flattened excerpt of the creation prompt — "what was asked". */
   promptExcerpt?: string | null;
   parentSessionId: string | null;
+  /** Task-first model (spec §2.1/§3). 'home' = the persistent per-agent chat; 'task' = a unit of work. */
+  sessionRole: "home" | "task";
+  /** 'execution' = specialist worktree task (Phase 2 gate); 'coordination' = lead that spawns sub-tasks. */
+  taskKind: "execution" | "coordination";
+  /** Explicit lifecycle override; null means derive from status/activity (see deriveLifecycleState). */
+  lifecycleState: "todo" | "running" | "done" | "archived" | null;
+  /** The task's well-defined goal (distinct from the auto-generated title). */
+  brief: string | null;
+  /** Short completion summary (posted to the home chat in Phase 1b). */
+  outcome: string | null;
   /** Forwarded SSO identity captured from an auth proxy (opt-in via
    *  `gateway.userHeader`). Null/undefined for single-user installs. */
   userId?: string | null;
