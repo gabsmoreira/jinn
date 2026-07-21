@@ -12,6 +12,7 @@ import { EmojiPicker } from "@/components/ui/emoji-picker"
 import { useModelRegistry } from "@/hooks/use-model-registry"
 import { RemoteAccessPanel } from "@/components/auth/remote-access-panel"
 import { useAuth } from "@/routes/auth-provider"
+import { COLUMNS } from "@/lib/kanban/types"
 
 // ---------------------------------------------------------------------------
 // Accent color presets
@@ -419,6 +420,290 @@ function SttSettingsSection() {
                 Add
               </button>
             </div>
+          </div>
+        </>
+      )}
+    </Section>
+  )
+}
+
+// ---------------------------------------------------------------------------
+// GitHub Projects sync settings section — self-contained state
+// ---------------------------------------------------------------------------
+
+const KANBAN_COLUMN_TITLES: Record<string, string> = Object.fromEntries(
+  COLUMNS.map((c) => [c.id, c.title]),
+)
+
+function GithubSyncPanel() {
+  type SyncStatus = {
+    connected: boolean
+    enabled: boolean
+    projectTitle: string | null
+    department: string | null
+    pollIntervalSec: number
+    lastPollAt: number | null
+    lastError: string | null
+  }
+
+  const [status, setStatus] = useState<SyncStatus | null>(null)
+  const [departments, setDepartments] = useState<string[]>([])
+  const [token, setToken] = useState("")
+  const [projectUrlOrId, setProjectUrlOrId] = useState("")
+  const [department, setDepartment] = useState("")
+  const [pollInterval, setPollInterval] = useState("")
+  const [busy, setBusy] = useState(false)
+  const [notice, setNotice] = useState<{ type: "success" | "error" | "warning"; message: string } | null>(null)
+
+  function loadStatus() {
+    return api
+      .getGithubSyncStatus()
+      .then((s) => {
+        setStatus(s)
+        setPollInterval(String(s.pollIntervalSec ?? 45))
+        if (s.department) setDepartment(s.department)
+      })
+      .catch((err) => {
+        // Keep a disconnected stub so the section still renders (header + notice)
+        // instead of disappearing entirely when the initial status load fails.
+        setStatus((prev) => prev ?? {
+          connected: false, enabled: false, projectTitle: null,
+          department: null, pollIntervalSec: 45, lastPollAt: null, lastError: null,
+        })
+        setNotice({ type: "error", message: err instanceof Error ? err.message : String(err) })
+      })
+  }
+
+  useEffect(() => {
+    void loadStatus()
+    api
+      .getOrg()
+      .then((o) => setDepartments(o.departments ?? []))
+      .catch(() => {})
+  }, [])
+
+  async function handleConnect() {
+    setBusy(true)
+    setNotice(null)
+    try {
+      const r = await api.connectGithubSync({ token, projectUrlOrId, department })
+      await loadStatus()
+      setToken("")
+      const warnings = [
+        ...r.unmatchedColumns.map(
+          (c) => `Jinn column "${KANBAN_COLUMN_TITLES[c] ?? c}" has no matching GitHub status`,
+        ),
+        ...r.unmatchedGithub.map((g) => `GitHub status "${g}" has no matching Jinn column`),
+      ]
+      setNotice({
+        type: warnings.length ? "warning" : "success",
+        message: warnings.length
+          ? `Connected to ${r.projectTitle}. Heads-up: ${warnings.join("; ")}`
+          : `Connected to ${r.projectTitle}.`,
+      })
+    } catch (err) {
+      setNotice({ type: "error", message: err instanceof Error ? err.message : String(err) })
+    } finally {
+      setBusy(false)
+    }
+  }
+
+  async function handleToggleEnabled(enabled: boolean) {
+    setBusy(true)
+    setNotice(null)
+    try {
+      await api.updateGithubSyncConfig({ enabled })
+      await loadStatus()
+    } catch (err) {
+      setNotice({ type: "error", message: err instanceof Error ? err.message : String(err) })
+    } finally {
+      setBusy(false)
+    }
+  }
+
+  async function handlePollIntervalBlur() {
+    const n = Math.max(15, Number(pollInterval) || 45)
+    setPollInterval(String(n))
+    if (status && n === status.pollIntervalSec) return
+    setBusy(true)
+    setNotice(null)
+    try {
+      await api.updateGithubSyncConfig({ pollIntervalSec: n })
+      await loadStatus()
+    } catch (err) {
+      setNotice({ type: "error", message: err instanceof Error ? err.message : String(err) })
+    } finally {
+      setBusy(false)
+    }
+  }
+
+  async function handleSyncNow() {
+    setBusy(true)
+    setNotice(null)
+    try {
+      const r = await api.syncGithubNow()
+      setNotice(
+        r.error
+          ? { type: "error", message: `Sync error: ${r.error}` }
+          : {
+              type: "success",
+              message: `Synced: ${r.created} created, ${r.updated} updated, ${r.imported} imported, ${r.deleted} deleted.`,
+            },
+      )
+      await loadStatus()
+    } catch (err) {
+      setNotice({ type: "error", message: err instanceof Error ? err.message : String(err) })
+    } finally {
+      setBusy(false)
+    }
+  }
+
+  async function handleDisconnect() {
+    if (!window.confirm("Disconnect GitHub Projects sync?")) return
+    setBusy(true)
+    setNotice(null)
+    try {
+      await api.disconnectGithubSync()
+      await loadStatus()
+      setNotice({ type: "success", message: "Disconnected from GitHub Projects." })
+    } catch (err) {
+      setNotice({ type: "error", message: err instanceof Error ? err.message : String(err) })
+    } finally {
+      setBusy(false)
+    }
+  }
+
+  if (!status) return null
+
+  const noticeColors = {
+    success: { bg: "rgba(34,197,94,0.1)", border: "rgba(34,197,94,0.3)", fg: "var(--system-green)" },
+    warning: { bg: "rgba(232,155,69,0.12)", border: "rgba(232,155,69,0.35)", fg: "var(--system-orange)" },
+    error: { bg: "rgba(239,68,68,0.1)", border: "rgba(239,68,68,0.3)", fg: "var(--system-red)" },
+  } as const
+
+  return (
+    <Section title="GitHub Projects Sync">
+      {notice && (
+        <div
+          className="mb-[var(--space-3)] px-[var(--space-3)] py-[var(--space-2)] rounded-[var(--radius-md)] text-[length:var(--text-footnote)]"
+          style={{
+            background: noticeColors[notice.type].bg,
+            border: `1px solid ${noticeColors[notice.type].border}`,
+            color: noticeColors[notice.type].fg,
+          }}
+        >
+          {notice.message}
+        </div>
+      )}
+
+      {!status.connected ? (
+        <>
+          <div className="text-[length:var(--text-caption1)] text-[var(--text-tertiary)] mb-[var(--space-3)]">
+            Connect a GitHub Project (v2) board to sync it with a Jinn department's kanban.
+          </div>
+          <FieldRow label="Personal Access Token">
+            <SettingsInput
+              type="password"
+              value={token}
+              onChange={setToken}
+              placeholder="ghp_..."
+            />
+          </FieldRow>
+          <FieldRow label="Project URL or Number">
+            <SettingsInput
+              value={projectUrlOrId}
+              onChange={setProjectUrlOrId}
+              placeholder="https://github.com/orgs/acme/projects/3"
+            />
+          </FieldRow>
+          <FieldRow label="Department">
+            <SettingsSelect
+              value={department}
+              onChange={setDepartment}
+              options={[
+                { value: "", label: "Select a department..." },
+                ...departments.map((d) => ({ value: d, label: d })),
+              ]}
+            />
+          </FieldRow>
+          <div className="flex justify-end mt-[var(--space-3)]">
+            <button
+              onClick={handleConnect}
+              disabled={busy || !token || !projectUrlOrId || !department}
+              className="px-[var(--space-5)] py-[var(--space-2)] rounded-[var(--radius-md)] bg-[var(--accent)] text-[var(--accent-contrast)] border-none text-[length:var(--text-footnote)] font-[var(--weight-semibold)] transition-all duration-150 ease-[var(--ease-smooth)]"
+              style={{
+                cursor: busy || !token || !projectUrlOrId || !department ? "default" : "pointer",
+                opacity: busy || !token || !projectUrlOrId || !department ? 0.6 : 1,
+              }}
+            >
+              {busy ? "Connecting..." : "Connect"}
+            </button>
+          </div>
+        </>
+      ) : (
+        <>
+          <FieldRow label="Project">
+            <div className="text-[length:var(--text-footnote)] text-[var(--text-primary)] text-right sm:text-left">
+              {status.projectTitle}
+            </div>
+          </FieldRow>
+          <FieldRow label="Department">
+            <div className="text-[length:var(--text-footnote)] text-[var(--text-primary)] text-right sm:text-left">
+              {status.department}
+            </div>
+          </FieldRow>
+          <FieldRow label="Enabled">
+            <ToggleSwitch checked={status.enabled} onChange={handleToggleEnabled} />
+          </FieldRow>
+          <FieldRow label="Poll Interval (seconds)">
+            <input
+              type="number"
+              min={15}
+              value={pollInterval}
+              onChange={(e) => setPollInterval(e.target.value)}
+              onBlur={handlePollIntervalBlur}
+              placeholder="60"
+              className="apple-input w-full bg-[var(--bg-secondary)] border border-[var(--separator)] rounded-[var(--radius-sm)] px-[10px] py-[6px] text-[length:var(--text-footnote)] text-[var(--text-primary)]"
+            />
+          </FieldRow>
+
+          <div
+            className="border-t border-[var(--separator)] mt-[var(--space-3)] pt-[var(--space-3)]"
+          />
+
+          <div className="text-[length:var(--text-caption1)] text-[var(--text-tertiary)]">
+            {status.lastPollAt
+              ? `Last synced ${new Date(status.lastPollAt).toLocaleString()}`
+              : "Not synced yet"}
+          </div>
+          {status.lastError && (
+            <div
+              className="mt-[var(--space-2)] inline-flex items-center gap-[6px] px-[8px] py-[3px] rounded-[var(--radius-sm)] text-[length:var(--text-caption2)] font-[var(--weight-medium)]"
+              style={{
+                background: "rgba(239,68,68,0.1)",
+                color: "var(--system-red)",
+              }}
+            >
+              {status.lastError}
+            </div>
+          )}
+
+          <div className="flex justify-end gap-[var(--space-2)] mt-[var(--space-3)]">
+            <button
+              onClick={handleDisconnect}
+              disabled={busy}
+              className="px-[var(--space-4)] py-[var(--space-2)] rounded-[var(--radius-md)] bg-[var(--fill-tertiary)] text-[var(--system-red)] border-none cursor-pointer text-[length:var(--text-footnote)] font-[var(--weight-medium)]"
+            >
+              Disconnect
+            </button>
+            <button
+              onClick={handleSyncNow}
+              disabled={busy}
+              className="px-[var(--space-4)] py-[var(--space-2)] rounded-[var(--radius-md)] bg-[var(--accent)] text-[var(--accent-contrast)] border-none text-[length:var(--text-footnote)] font-[var(--weight-semibold)]"
+              style={{ cursor: busy ? "wait" : "pointer", opacity: busy ? 0.7 : 1 }}
+            >
+              {busy ? "Syncing..." : "Sync Now"}
+            </button>
           </div>
         </>
       )}
@@ -1636,6 +1921,9 @@ export default function SettingsPage() {
 
               {/* -- Section 8: Voice Input (STT) -- */}
               <SttSettingsSection />
+
+              {/* -- Section 9: GitHub Projects Sync -- */}
+              <GithubSyncPanel />
 
               {/* Save button for gateway config */}
               <div

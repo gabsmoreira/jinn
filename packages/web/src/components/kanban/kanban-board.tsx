@@ -56,7 +56,7 @@ export function KanbanBoard({
               return (
                 <TicketCard
                   ticket={ticket}
-                  assigneeName={emp?.displayName ?? null}
+                  assigneeName={emp?.displayName ?? ticket.assigneeId}
                   onClick={() => onTicketClick(ticket)}
                   onDelete={onDeleteTicket ? () => onDeleteTicket(ticket) : undefined}
                 />

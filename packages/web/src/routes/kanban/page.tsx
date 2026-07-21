@@ -4,6 +4,7 @@ import { Plus } from 'lucide-react'
 import { api } from '@/lib/api'
 import type { Employee, OrgData } from '@/lib/api'
 import type { KanbanTicket, TicketStatus, TicketPriority } from '@/lib/kanban/types'
+import { COLUMNS, LEGACY_STATUS_MIGRATION } from '@/lib/kanban/types'
 import {
   loadTickets,
   saveTickets,
@@ -87,49 +88,6 @@ export default function KanbanPage() {
   const [filterEmployeeId, setFilterEmployeeId] = useState<string | null>(null)
   const [deleteConfirm, setDeleteConfirm] = useState<KanbanTicket | null>(null)
 
-  /** Sync tickets to the gateway API, grouped by department */
-  const syncToApi = useCallback(async (store: KanbanStore) => {
-    // Group tickets by department
-    const byDept: Record<string, Array<{
-      id: string
-      title: string
-      description?: string
-      status: string
-      priority: string
-      assignee?: string
-      createdAt: string
-      updatedAt: string
-    }>> = {}
-
-    for (const ticket of Object.values(store)) {
-      const dept = ticket.department
-      if (!dept) continue
-      if (!byDept[dept]) byDept[dept] = []
-      byDept[dept].push({
-        id: ticket.id,
-        title: ticket.title,
-        description: ticket.description || undefined,
-        status: ticket.status,
-        priority: ticket.priority,
-        assignee: ticket.assigneeId || undefined,
-        createdAt: new Date(ticket.createdAt).toISOString(),
-        updatedAt: new Date(ticket.updatedAt).toISOString(),
-      })
-    }
-
-    // PUT each department's board (including empty arrays to clear deleted tickets)
-    const allDepts = new Set([...Object.keys(byDept), ...departments])
-    const promises = Array.from(allDepts).map(async (dept) => {
-      try {
-        await api.updateDepartmentBoard(dept, byDept[dept] || [])
-      } catch {
-        // API unavailable — localStorage is the fallback
-      }
-    })
-
-    await Promise.all(promises)
-  }, [departments])
-
   const loadData = useCallback(() => {
     setLoading(true)
     setError(null)
@@ -154,19 +112,16 @@ export default function KanbanPage() {
               assignee?: string
               createdAt?: string
               updatedAt?: string
+              githubItemId?: string
+              githubSyncedAt?: number
             }>
             if (Array.isArray(board)) {
+              const validStatuses = new Set(COLUMNS.map((c) => c.id))
               for (const item of board) {
-                // Map board.json status to kanban statuses
-                const statusMap: Record<string, TicketStatus> = {
-                  todo: 'todo',
-                  'in_progress': 'in-progress',
-                  'in-progress': 'in-progress',
-                  done: 'done',
-                  backlog: 'backlog',
-                  review: 'review',
-                }
-                const status = statusMap[item.status] || 'todo'
+                // Map board.json status to kanban statuses, migrating legacy slugs
+                const status: TicketStatus = validStatuses.has(item.status as TicketStatus)
+                  ? (item.status as TicketStatus)
+                  : (LEGACY_STATUS_MIGRATION[item.status] ?? 'backlog')
                 const priorityMap: Record<string, TicketPriority> = {
                   low: 'low',
                   medium: 'medium',
@@ -185,6 +140,8 @@ export default function KanbanPage() {
                   createdAt: item.createdAt ? new Date(item.createdAt).getTime() : Date.now(),
                   updatedAt: item.updatedAt ? new Date(item.updatedAt).getTime() : Date.now(),
                   departmentId: dept,
+                  githubItemId: item.githubItemId,
+                  githubSyncedAt: item.githubSyncedAt,
                 }
               }
             }
@@ -246,6 +203,8 @@ export default function KanbanPage() {
             assignee: t.assigneeId ?? undefined,
             createdAt: new Date(t.createdAt).toISOString(),
             updatedAt: new Date(t.updatedAt).toISOString(),
+            githubItemId: t.githubItemId,
+            githubSyncedAt: t.githubSyncedAt,
           }))
           return api.updateDepartmentBoard(dept, boardData).catch(() => {
             // Silently ignore — department dir may not exist on disk yet

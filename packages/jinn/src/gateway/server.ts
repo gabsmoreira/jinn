@@ -56,6 +56,7 @@ import { TelegramConnector } from "../connectors/telegram/index.js";
 import { loadJobs } from "../cron/jobs.js";
 import { startScheduler, reloadScheduler, stopScheduler } from "../cron/scheduler.js";
 import { scanOrg } from "./org.js";
+import { startGithubSync, stopGithubSync, reloadGithubSync } from "./github-sync/engine.js";
 
 
 const __filename = fileURLToPath(import.meta.url);
@@ -803,6 +804,9 @@ export async function startGateway(
     }
   };
 
+  // Start GitHub Projects kanban sync (no-op unless config.github.enabled)
+  startGithubSync(() => currentConfig, emit);
+
   // Discover dynamic engine models in the background. Fire-and-forget: the
   // registry serves known/synthesized fallbacks until the snapshots land, then
   // the web UI invalidates its model registry cache via engines:updated.
@@ -893,6 +897,7 @@ export async function startGateway(
       refreshDynamicModels(currentConfig); // re-discover dynamic models (engine bins/auth may have changed)
       logger.info("Config reloaded successfully");
       emit("config:reloaded", {});
+      reloadGithubSync(() => currentConfig, emit);
     } catch (err) {
       logger.error(`Failed to reload config: ${err instanceof Error ? err.message : err}`);
     }
@@ -1217,6 +1222,9 @@ export async function startGateway(
 
     // Stop cron scheduler
     stopScheduler();
+
+    // Stop GitHub Projects kanban sync
+    stopGithubSync();
 
     // Stop connectors
     for (const connector of connectors) {

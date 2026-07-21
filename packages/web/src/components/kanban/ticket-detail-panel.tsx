@@ -115,6 +115,11 @@ export function TicketDetailPanel({
                   {assignee.rank}
                 </span>
               </div>
+            ) : ticket.assigneeId ? (
+              // No matching Jinn employee — show the raw value (e.g. a GitHub login synced from Projects).
+              <div className="flex items-center gap-[var(--space-2)] mt-[var(--space-3)] text-[length:var(--text-footnote)] text-[var(--text-secondary)]">
+                <span>{ticket.assigneeId}</span>
+              </div>
             ) : (
               <div className="mt-[var(--space-3)] text-[length:var(--text-footnote)] text-[var(--text-tertiary)] italic">
                 Unassigned
