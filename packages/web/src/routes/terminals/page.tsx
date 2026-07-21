@@ -125,6 +125,9 @@ function RailRow({
   onRequestDelete: () => void
 }) {
   const sub = (label || s.title || s.promptExcerpt || 'Untitled').trim() || 'Untitled'
+  // Rename edits the underlying title, NOT the display-only `label` override (e.g. a
+  // home row's "💬 Home chat") — otherwise committing would persist the placeholder.
+  const renameSeed = (s.title || s.promptExcerpt || 'Untitled').trim() || 'Untitled'
   // Scoped to this row — guards the Escape-then-blur sequence so blur doesn't
   // re-commit after a cancelled rename (mirrors chat-sidebar's renameCancelledRef).
   const renameCancelledRef = useRef(false)
@@ -146,7 +149,7 @@ function RailRow({
             <input
               autoFocus
               maxLength={200}
-              defaultValue={sub}
+              defaultValue={renameSeed}
               className="min-w-0 flex-1 truncate rounded border-none bg-transparent px-0.5 text-[length:var(--text-caption1)] text-[var(--text-secondary)] outline-none ring-1 ring-[var(--text-quaternary)]"
               onFocus={(e) => e.target.select()}
               onClick={(e) => e.stopPropagation()}
@@ -185,7 +188,7 @@ function RailRow({
               </button>
             </DropdownMenuTrigger>
             <DropdownMenuContent align="end">
-              <DropdownMenuItem onClick={onStartRename}>
+              <DropdownMenuItem onClick={() => { renameCancelledRef.current = false; onStartRename() }}>
                 <Pencil /> Rename
               </DropdownMenuItem>
               <DropdownMenuItem onClick={onTogglePin}>
@@ -207,7 +210,7 @@ function RailRow({
         </RowTag>
       </ContextMenuTrigger>
       <ContextMenuContent>
-        <ContextMenuItem onClick={onStartRename}>
+        <ContextMenuItem onClick={() => { renameCancelledRef.current = false; onStartRename() }}>
           <Pencil /> Rename
         </ContextMenuItem>
         <ContextMenuItem onClick={onTogglePin}>
