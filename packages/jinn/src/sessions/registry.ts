@@ -66,6 +66,11 @@ const CREATE_PARENT_INDEX = `
 CREATE INDEX IF NOT EXISTS idx_sessions_parent ON sessions (parent_session_id)
 `;
 
+// One home chat per agent (spec §4.1). Partial unique index — only 'home' rows are constrained.
+const CREATE_HOME_INDEX = `
+CREATE UNIQUE INDEX IF NOT EXISTS idx_home_per_agent ON sessions (employee) WHERE session_role = 'home'
+`;
+
 const CREATE_FILES_TABLE = `
 CREATE TABLE IF NOT EXISTS files (
   id TEXT PRIMARY KEY,
@@ -224,6 +229,7 @@ export function initDb(): Database.Database {
   db.exec(CREATE_SESSION_KEY_INDEX);
   db.exec(CREATE_LAST_ACTIVITY_INDEX);
   db.exec(CREATE_PARENT_INDEX);
+  db.exec(CREATE_HOME_INDEX);
   db.exec(`
     CREATE TABLE IF NOT EXISTS queue_items (
       id TEXT PRIMARY KEY,
@@ -506,6 +512,12 @@ export function migrateSessionsSchema(database: Database.Database): void {
     ['user_id', 'TEXT'],
     // No backfill: pre-existing sessions stay NULL (no excerpt); only new sessions populate it.
     ['prompt_excerpt', 'TEXT'],
+    // Task-first model (see docs/.../agent-tasks-and-kanban-execution-design.md §3).
+    ['session_role', 'TEXT', "'task'"],
+    ['task_kind', 'TEXT', "'execution'"],
+    ['lifecycle_state', 'TEXT'],
+    ['brief', 'TEXT'],
+    ['outcome', 'TEXT'],
   ];
 
   for (const [name, type, defaultVal] of missingColumns) {
