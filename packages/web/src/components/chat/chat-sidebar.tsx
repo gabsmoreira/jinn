@@ -35,6 +35,7 @@ import {
 } from "@/components/ui/dialog"
 import { cn } from "@/lib/utils"
 import { mergeSidebarEmployees, bucketByDay, summarizeOlder, isFocusedSession } from "@/components/chat/chat-route-helpers"
+import { capAgentSessions } from "@/components/chat/cap-sessions"
 
 interface Session {
   id: string
@@ -108,6 +109,10 @@ const BACKGROUND_ACTIVITY_STALE_MS = 5 * 60 * 1000
 // errored sessions fall back to the normal idle/unread treatment so the list
 // isn't littered with stale red dots.
 const RECENT_ERROR_WINDOW_MS = 24 * 60 * 60 * 1000
+// Local (client-only) cap on how many of an already-loaded agent's chats are
+// rendered before collapsing behind a "+N more" reveal. Orthogonal to the
+// server-side "load more" (loadedCount < sessionCount) below.
+const SIDEBAR_CHATS_PER_AGENT = 5
 
 const COLLAPSE_STORAGE_KEY = "jinn-sidebar-collapsed"
 const EXPANDED_STORAGE_KEY = "jinn-sidebar-expanded"
@@ -834,6 +839,9 @@ const EmployeeRow = React.memo(function EmployeeRow({
   const empName = item.employeeName!
   const empSessions = item.sessions!
   const latestSession = empSessions[0]
+  // Local reveal for the client-side per-agent cap (SIDEBAR_CHATS_PER_AGENT);
+  // independent of the server-side loadedCount/sessionCount pagination below.
+  const [revealedAll, setRevealedAll] = useState(false)
   const empInfo = item.employeeData
   const displayName = empInfo?.displayName || titleCase(empName)
   const department = empInfo?.department || ""
@@ -957,11 +965,30 @@ const EmployeeRow = React.memo(function EmployeeRow({
         </ContextMenuContent>
       </ContextMenu>
 
-      {isExpanded && loadedCount > 1 ? (
-        empSessions.map((session) => (
-          <SessionRow key={session.id} session={session} parentSessions={empSessions} {...sessionRowProps} />
-        ))
-      ) : null}
+      {isExpanded && loadedCount > 1 ? (() => {
+        const { visible, hiddenCount } = revealedAll
+          ? { visible: empSessions, hiddenCount: 0 }
+          : capAgentSessions(empSessions, {
+              cap: SIDEBAR_CHATS_PER_AGENT,
+              activeId: selectedId,
+              isPinned: (s) => pinnedSessions.has(s.id),
+            })
+        return (
+          <>
+            {visible.map((session) => (
+              <SessionRow key={session.id} session={session} parentSessions={empSessions} {...sessionRowProps} />
+            ))}
+            {hiddenCount > 0 ? (
+              <button
+                onClick={() => setRevealedAll(true)}
+                className="w-full cursor-pointer px-4 pb-2 pl-11 text-left text-[10px] text-[var(--text-quaternary)] transition-colors hover:text-[var(--text-secondary)]"
+              >
+                +{hiddenCount} more
+              </button>
+            ) : null}
+          </>
+        )
+      })() : null}
       {isExpanded && loadedCount < sessionCount ? (
         <button
           onClick={() => onLoadMore(groupKey, loadedCount)}
