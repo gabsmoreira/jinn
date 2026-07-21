@@ -1,9 +1,30 @@
 import { useEffect, useMemo, useState } from 'react'
+import { ChevronDown } from 'lucide-react'
 import { PageLayout } from '@/components/page-layout'
 import { EmployeeAvatar } from '@/components/ui/employee-avatar'
 import { CliTerminal } from '@/components/cli-terminal'
 import { useSessions } from '@/hooks/use-sessions'
 import { groupTerminalsByAgent } from './terminal-sessions'
+
+const TERMINALS_COLLAPSE_KEY = 'jinn-terminals-collapsed'
+
+function loadCollapsed(): Set<string> {
+  if (typeof localStorage === 'undefined') return new Set()
+  try {
+    const raw = localStorage.getItem(TERMINALS_COLLAPSE_KEY)
+    return raw ? new Set(JSON.parse(raw) as string[]) : new Set()
+  } catch {
+    return new Set()
+  }
+}
+
+function saveCollapsed(collapsed: Set<string>) {
+  try {
+    localStorage.setItem(TERMINALS_COLLAPSE_KEY, JSON.stringify(Array.from(collapsed)))
+  } catch {
+    /* ignore */
+  }
+}
 
 interface TermSession {
   id: string
@@ -72,6 +93,17 @@ export default function TerminalsPage() {
   const [selectedId, setSelectedId] = useState<string | null>(null)
   // Agents whose task list has been expanded past the cap via "+N more".
   const [revealed, setRevealed] = useState<Set<string>>(new Set())
+  // Agents whose group is collapsed to just the header — persisted across reloads.
+  const [collapsed, setCollapsed] = useState<Set<string>>(() => loadCollapsed())
+  const toggleCollapse = (agent: string) => {
+    setCollapsed((prev) => {
+      const next = new Set(prev)
+      if (next.has(agent)) next.delete(agent)
+      else next.add(agent)
+      saveCollapsed(next)
+      return next
+    })
+  }
 
   // Keep a valid selection: default to the top (running-first) session; re-point
   // if the current one drops out of the list. Candidates include all non-archived
@@ -109,27 +141,38 @@ export default function TerminalsPage() {
                 const name = g.agent === 'you' ? 'you' : g.agent
                 return (
                   <div key={g.agent} className="pb-1">
-                    <div className="flex items-center gap-2 px-3 pt-3 pb-1">
+                    <button
+                      type="button"
+                      onClick={() => toggleCollapse(g.agent)}
+                      className="flex w-full items-center gap-2 px-3 pt-3 pb-1 text-left"
+                    >
+                      <ChevronDown
+                        className={`size-3 shrink-0 text-[var(--text-tertiary)] transition-transform ${collapsed.has(g.agent) ? '-rotate-90' : ''}`}
+                      />
                       <EmployeeAvatar name={name} size={20} />
                       <span className="min-w-0 flex-1 truncate text-[length:var(--text-footnote)] font-[var(--weight-medium)] text-[var(--text-primary)]">
                         {label}
                       </span>
                       {g.hasRunning ? <StatusDot status="running" /> : null}
-                    </div>
-                    {g.home ? (
-                      <RailRow s={g.home} selected={g.home.id === selectedId} onSelect={setSelectedId} label="💬 Home chat" />
-                    ) : null}
-                    {(revealed.has(g.agent) ? g.tasks : g.visibleTasks).map((s) => (
-                      <RailRow key={s.id} s={s} selected={s.id === selectedId} onSelect={setSelectedId} />
-                    ))}
-                    {g.hiddenCount > 0 && !revealed.has(g.agent) ? (
-                      <button
-                        onClick={() => setRevealed((prev) => new Set(prev).add(g.agent))}
-                        className="w-full py-1 pl-9 pr-3 text-left text-[length:var(--text-caption2)] text-[var(--text-tertiary)] transition-colors hover:text-[var(--text-secondary)]"
-                      >
-                        +{g.hiddenCount} more
-                      </button>
-                    ) : null}
+                    </button>
+                    {!collapsed.has(g.agent) && (
+                      <>
+                        {g.home ? (
+                          <RailRow s={g.home} selected={g.home.id === selectedId} onSelect={setSelectedId} label="💬 Home chat" />
+                        ) : null}
+                        {(revealed.has(g.agent) ? g.tasks : g.visibleTasks).map((s) => (
+                          <RailRow key={s.id} s={s} selected={s.id === selectedId} onSelect={setSelectedId} />
+                        ))}
+                        {g.hiddenCount > 0 && !revealed.has(g.agent) ? (
+                          <button
+                            onClick={() => setRevealed((prev) => new Set(prev).add(g.agent))}
+                            className="w-full py-1 pl-9 pr-3 text-left text-[length:var(--text-caption2)] text-[var(--text-tertiary)] transition-colors hover:text-[var(--text-secondary)]"
+                          >
+                            +{g.hiddenCount} more
+                          </button>
+                        ) : null}
+                      </>
+                    )}
                   </div>
                 )
               })
