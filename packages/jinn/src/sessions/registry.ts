@@ -670,6 +670,29 @@ export function getSessionBySessionKey(sessionKey: string): Session | undefined 
   return row ? rowToSession(row) : undefined;
 }
 
+/** The single persistent 'home' chat for an agent (spec §4.1). Lazily created; the
+ *  partial unique index `idx_home_per_agent` enforces one per agent even under a race
+ *  (we re-query on the unique-constraint error). */
+export function getOrCreateHomeChat(employee: string, engine = "claude"): Session {
+  const db = initDb();
+  const find = () =>
+    db.prepare(`SELECT * FROM sessions WHERE employee = ? AND session_role = 'home' ORDER BY created_at ASC LIMIT 1`)
+      .get(employee) as Record<string, unknown> | undefined;
+  const existing = find();
+  if (existing) return rowToSession(existing);
+  try {
+    return createSession({
+      engine, source: "web", sourceRef: `home:${employee}`,
+      employee, sessionRole: "home", title: `${employee} — home`,
+    });
+  } catch (err) {
+    // Lost a race to the unique index — the other creator won; return theirs.
+    const row = find();
+    if (row) return rowToSession(row);
+    throw err;
+  }
+}
+
 export interface UpdateSessionFields {
   engine?: string;
   engineSessionId?: string | null;

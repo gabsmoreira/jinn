@@ -6,7 +6,7 @@ process.env.JINN_HOME = tmp;
 // JINN_HOME assignment above (SESSIONS_DB is resolved at module load), which
 // would silently point the registry at the real, non-isolated JINN_HOME instead
 // of this test's tmp dir. See engine-sessions.test.ts for the same pattern.
-const { createSession, updateSession, getSession } = await import("../registry.js");
+const { createSession, updateSession, getSession, getOrCreateHomeChat } = await import("../registry.js");
 
 describe("session task-model round-trip", () => {
   it("defaults role=task/kind=execution and persists brief/lifecycle/outcome", () => {
@@ -25,5 +25,20 @@ describe("session task-model round-trip", () => {
   it("can create a home role", () => {
     const s = createSession({ engine: "claude", source: "web", sourceRef: "web:home1", employee: "firmware-lead", sessionRole: "home" });
     expect(s.sessionRole).toBe("home");
+  });
+});
+
+describe("getOrCreateHomeChat", () => {
+  it("creates one home chat and returns the same one on repeat", () => {
+    const a = getOrCreateHomeChat("firmware-lead");
+    expect(a.sessionRole).toBe("home");
+    expect(a.employee).toBe("firmware-lead");
+    const b = getOrCreateHomeChat("firmware-lead");
+    expect(b.id).toBe(a.id); // single-home invariant
+  });
+  it("different agents get different home chats", () => {
+    const a = getOrCreateHomeChat("hvac-specialist");
+    const b = getOrCreateHomeChat("data-scientist");
+    expect(a.id).not.toBe(b.id);
   });
 });
