@@ -23,6 +23,7 @@ const RedesignPage = lazyRoute(() => import('./routes/redesign/page'), 'redesign
 const WorkflowPreviewPage = lazyRoute(() => import('./routes/workflow/preview'), 'workflow-preview')
 const WorkflowListPage = lazyRoute(() => import('./routes/workflow/list'), 'workflow-list')
 const WorkflowPage = lazyRoute(() => import('./routes/workflow/page'), 'workflow')
+const TerminalsPage = lazyRoute(() => import('./routes/terminals/page'), 'terminals')
 
 function RouteLoading() {
   return (
@@ -98,6 +99,7 @@ const router = createBrowserRouter([
       { path: '/skills/:name', element: <SkillDetailPage /> },
       { path: '/file', element: <FilePage /> },
       { path: '/more', element: <MorePage /> },
+      { path: '/terminals', element: <TerminalsPage /> },
       { path: '/workflow', element: <WorkflowListPage /> },
       { path: '/workflow/:id', element: <WorkflowPage /> },
       ...(import.meta.env.DEV

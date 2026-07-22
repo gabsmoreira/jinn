@@ -10,6 +10,7 @@ import {
   Settings,
   MoreHorizontal,
   NotebookPen,
+  SquareTerminal,
 } from "lucide-react"
 import type { LucideIcon } from "lucide-react"
 
@@ -28,6 +29,7 @@ const BASE_NAV_ITEMS: NavItem[] = [
   { href: "/limits", label: "Limits", icon: Gauge },
   { href: "/logs", label: "Activity", icon: Activity },
   { href: "/skills", label: "Skills", icon: Zap },
+  { href: "/terminals", label: "Terminals", icon: SquareTerminal },
   { href: "/settings", label: "Settings", icon: Settings },
 ]
 
