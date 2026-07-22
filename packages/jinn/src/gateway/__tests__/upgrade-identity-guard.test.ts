@@ -127,6 +127,48 @@ describe("PTY WebSocket upgrade authority", () => {
     expect(socket.destroyed).toBe(false);
   });
 
+  it("accepts a same-origin Chrome PTY upgrade that omits Sec-Fetch headers entirely", () => {
+    // Chrome sends NO Sec-Fetch-* headers on a WebSocket handshake. Operator trust
+    // must still hold via loopback + matching Origin/authority, else the live CLI
+    // view loops forever on "restoring… (reconnecting)". Regression guard.
+    const socket = new FakeUpgradeSocket();
+    const guard = (server as any).rejectNonOperatorPtyUpgradeCaller;
+    const request = req({
+      host: "127.0.0.1:7801",
+      origin: "http://127.0.0.1:7801",
+      upgrade: "websocket",
+    });
+    const sameOrigin = isSameOriginBrowserRequest(request, { gateway: { host: "127.0.0.1" } } as never);
+    expect(sameOrigin).toBe(true);
+
+    const rejected = guard(request, socket, { operatorAuthenticated: sameOrigin });
+    expect(rejected).toBe(false);
+    expect(socket.destroyed).toBe(false);
+  });
+
+  it("still rejects a cross-origin PTY upgrade when Sec-Fetch headers are absent (no CSRF hole)", () => {
+    // The relaxation must not open CSRF: a cross-origin WS still carries its real,
+    // non-matching Origin, which fails the authority check below.
+    const request = req({
+      host: "127.0.0.1:7801",
+      origin: "http://evil.example",
+      upgrade: "websocket",
+    });
+    expect(isSameOriginBrowserRequest(request, { gateway: { host: "127.0.0.1" } } as never)).toBe(false);
+  });
+
+  it("accepts a WS upgrade whose Sec-Fetch-Dest is 'websocket' (current Fetch spec)", () => {
+    const request = req({
+      host: "127.0.0.1:7801",
+      origin: "http://127.0.0.1:7801",
+      upgrade: "websocket",
+      "sec-fetch-dest": "websocket",
+      "sec-fetch-mode": "websocket",
+      "sec-fetch-site": "same-origin",
+    });
+    expect(isSameOriginBrowserRequest(request, { gateway: { host: "127.0.0.1" } } as never)).toBe(true);
+  });
+
   it("rejects a cross-origin browser PTY upgrade (no operator trust)", () => {
     const socket = new FakeUpgradeSocket();
     const guard = (server as any).rejectNonOperatorPtyUpgradeCaller;

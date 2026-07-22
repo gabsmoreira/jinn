@@ -2507,8 +2507,21 @@ export function isSameOriginBrowserRequest(
   const fetchMode = singleRequestHeader(req, "sec-fetch-mode");
   const fetchDest = singleRequestHeader(req, "sec-fetch-dest");
   const upgrade = singleRequestHeader(req, "upgrade")?.toLowerCase();
-  const expectedMode = upgrade === "websocket" ? "websocket" : "cors";
-  if (fetchSite !== "same-origin" || fetchMode !== expectedMode || fetchDest !== "empty") return false;
+  const isWebSocket = upgrade === "websocket";
+  // Fetch-metadata CSRF gate. Chrome sends NO Sec-Fetch-* headers on a WebSocket
+  // handshake (verified: loopback PTY upgrades arrive with all three undefined), so
+  // requiring them there 403s the operator's own same-origin CLI view. Enforce them
+  // for plain fetches and for any WS upgrade that DOES carry them; when a WS upgrade
+  // omits them entirely, fall through to the origin/authority/loopback checks below,
+  // which already establish same-origin (a cross-origin page's WS still carries its
+  // real, non-matching Origin and is rejected there). dest is "empty" on older
+  // browsers and "websocket" per the current Fetch spec — accept both for WS.
+  const secFetchPresent = fetchSite !== undefined || fetchMode !== undefined || fetchDest !== undefined;
+  if (!isWebSocket || secFetchPresent) {
+    const expectedMode = isWebSocket ? "websocket" : "cors";
+    const destOk = isWebSocket ? (fetchDest === "empty" || fetchDest === "websocket") : fetchDest === "empty";
+    if (fetchSite !== "same-origin" || fetchMode !== expectedMode || !destOk) return false;
+  }
 
   const origins = requestHeaderValues(req, "origin");
   if (origins.length > 1 || (upgrade === "websocket" && origins.length !== 1)) return false;
