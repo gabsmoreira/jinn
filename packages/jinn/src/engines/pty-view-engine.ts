@@ -14,7 +14,10 @@ export type PtyControlEvent =
   | { type: "snapshot"; snapshot: SerializedPtySnapshot }
   | { type: "ready" }
   | { type: "error"; message: string; recoverable: boolean }
-  | { type: "exited"; exitCode: number; signal: number };
+  | { type: "exited"; exitCode: number; signal: number }
+  /** Claude refused `--resume` because it holds the session as a background agent —
+   *  the client shows a Fork/Retry panel instead of a blank/looping terminal. */
+  | { type: "bg_agent" };
 
 export interface PtyInitialSnapshot {
   snapshot?: SerializedPtySnapshot;
@@ -54,4 +57,8 @@ export interface PtyViewEngine {
   writeStdin(sessionId: string, text: string): void;
   writeRaw(sessionId: string, data: string): void;
   resizePty(sessionId: string, cols: number, rows: number): void;
+  /** Clear a session's background-agent block so the next spawn is attempted again
+   *  (after Fork/Retry, or after the user cleared the agent in `claude agents`).
+   *  Optional — only the claude engine implements it. */
+  clearBgAgentBlock?(sessionId: string): void;
 }

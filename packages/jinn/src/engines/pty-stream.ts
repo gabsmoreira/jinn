@@ -213,6 +213,13 @@ export class PtyStreamManager {
     this.emitControl(stream, { type: "error", message, recoverable: true });
   }
 
+  /** Fan an arbitrary out-of-band control event to a session's subscribers (e.g. a
+   *  bg_agent notice). Mirrors reportError's emit path. */
+  pushControl(sessionId: string, event: PtyControlEvent): void {
+    const stream = this.streamFor(sessionId);
+    this.emitControl(stream, event);
+  }
+
   async flushSnapshot(sessionId: string): Promise<void> {
     const stream = this.streams.get(sessionId);
     if (stream?.snapshot) {

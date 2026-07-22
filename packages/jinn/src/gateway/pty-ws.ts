@@ -62,7 +62,7 @@ export function attachPtyWebSocket(
       pendingViewing = null;
       if (restoreViewing) queueMicrotask(() => applyViewingWhenReady(true));
       armResumeDeadline();
-    } else if (event.type === "error" || event.type === "exited") {
+    } else if (event.type === "error" || event.type === "exited" || event.type === "bg_agent") {
       terminalReady = false;
       clearResumeDeadline();
     }
@@ -209,6 +209,13 @@ export function attachPtyWebSocket(
           recoverable: true,
         });
       }
+    } else if (message?.type === "retry") {
+      // bg-agent panel Retry: clear the block, then respawn at the last real geometry.
+      // If no resize has landed on this connection yet we skip the spawn (the client
+      // pairs retry with a refit, so a resize frame follows and drives it).
+      engine.clearBgAgentBlock?.(sessionId);
+      const geometry = lastGeometry;
+      if (geometry) spawnIfNeeded(geometry.cols, geometry.rows);
     } else if (message?.type === "viewing" && typeof message.viewing === "boolean") {
       if (!entryReady) pendingViewing = message.viewing;
       else applyViewing(message.viewing);

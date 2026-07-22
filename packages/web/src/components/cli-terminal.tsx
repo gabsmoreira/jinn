@@ -1,4 +1,5 @@
 import { forwardRef, useEffect, useImperativeHandle, useRef, useState } from "react";
+import { api } from "@/lib/api";
 import { Terminal, type ITheme } from "@xterm/xterm";
 import { FitAddon } from "@xterm/addon-fit";
 import "@xterm/xterm/css/xterm.css";
@@ -120,9 +121,10 @@ export interface CliTerminalHandle {
 type TerminalRecoveryState =
   | { status: "restoring" }
   | { status: "ready" }
-  | { status: "error"; message: string };
+  | { status: "error"; message: string }
+  | { status: "bg_agent" };
 
-export const CliTerminal = forwardRef<CliTerminalHandle, { sessionId: string }>(function CliTerminal({ sessionId }, ref) {
+export const CliTerminal = forwardRef<CliTerminalHandle, { sessionId: string; onForked?: (newSessionId: string) => void }>(function CliTerminal({ sessionId, onForked }, ref) {
   const containerRef = useRef<HTMLDivElement>(null);
   const wsRef = useRef<WebSocket | null>(null);
   // Lets the visibility effect (a separate effect) recover a dead socket without
@@ -131,12 +133,37 @@ export const CliTerminal = forwardRef<CliTerminalHandle, { sessionId: string }>(
   const visible = usePageVisibility();
   const [terminalState, setTerminalState] = useState<TerminalRecoveryState>({ status: "restoring" });
   const [reconnecting, setReconnecting] = useState(false);
+  // Direct api call (not the react-query hook) so this low-level component stays free
+  // of a QueryClientProvider dependency — keeps it renderable/testable in isolation.
+  const [forking, setForking] = useState(false);
 
   const restartTerminal = () => {
     const ws = wsRef.current;
     if (!ws || ws.readyState !== WebSocket.OPEN) return;
     setTerminalState({ status: "restoring" });
     ws.send(JSON.stringify({ type: "restart" }));
+  };
+
+  // bg-agent panel actions. Retry clears the block server-side + respawns, paired with
+  // a refit so a real resize drives the spawn. Fork duplicates the session (its own
+  // engine id isn't blocked) and navigates via onForked when provided.
+  const retryBgAgent = () => {
+    const ws = wsRef.current;
+    setTerminalState({ status: "restoring" });
+    if (ws && ws.readyState === WebSocket.OPEN) ws.send(JSON.stringify({ type: "retry" }));
+    window.dispatchEvent(new Event("resize"));
+  };
+  const forkBgAgent = async () => {
+    setForking(true);
+    try {
+      const res = await api.duplicateSession(sessionId);
+      const newId = (res as { session?: { id?: string }; id?: string })?.session?.id ?? (res as { id?: string })?.id;
+      if (newId) onForked?.(newId);
+    } catch (err) {
+      window.alert(`Fork failed: ${err instanceof Error ? err.message : String(err)}`);
+    } finally {
+      setForking(false);
+    }
   };
 
   useImperativeHandle(ref, () => ({
@@ -224,6 +251,10 @@ export const CliTerminal = forwardRef<CliTerminalHandle, { sessionId: string }>(
           if (msg?.type === "exited") {
             const code = typeof msg.exitCode === "number" ? msg.exitCode : "unknown";
             setTerminalState({ status: "error", message: `Terminal exited with code ${code}.` });
+            return;
+          }
+          if (msg?.type === "bg_agent") {
+            setTerminalState({ status: "bg_agent" });
             return;
           }
         } catch {
@@ -578,6 +609,48 @@ export const CliTerminal = forwardRef<CliTerminalHandle, { sessionId: string }>(
           >
             Restart terminal
           </button>
+        </div>
+      )}
+      {terminalState.status === "bg_agent" && (
+        <div
+          role="alert"
+          style={{
+            position: "absolute",
+            inset: 0,
+            display: "flex",
+            flexDirection: "column",
+            alignItems: "center",
+            justifyContent: "center",
+            gap: "0.75rem",
+            padding: "1.5rem",
+            background: "var(--bg)",
+            textAlign: "center",
+            zIndex: 2,
+          }}
+        >
+          <span style={{ color: "var(--text-secondary)", fontFamily: "var(--font-code)", fontSize: 12, maxWidth: 420 }}>
+            This session is running as a background agent in Claude Code, so it can’t be resumed here directly.
+          </span>
+          <div style={{ display: "flex", gap: "0.5rem" }}>
+            <button
+              type="button"
+              disabled={forking}
+              onClick={forkBgAgent}
+              className="min-h-10 shrink-0 rounded-lg px-3 transition-transform active:scale-[0.96]"
+              style={{ background: "var(--accent)", color: "var(--accent-foreground)", fontFamily: "var(--font-code)", fontSize: 12, cursor: "pointer" }}
+            >
+              {forking ? "Forking…" : "Fork a copy"}
+            </button>
+            <button
+              type="button"
+              disabled={forking}
+              onClick={retryBgAgent}
+              className="min-h-10 shrink-0 rounded-lg px-3 transition-transform active:scale-[0.96]"
+              style={{ background: "var(--bg-secondary, rgba(20,19,15,0.92))", color: "var(--text-secondary)", fontFamily: "var(--font-code)", fontSize: 12, cursor: "pointer" }}
+            >
+              Retry
+            </button>
+          </div>
         </div>
       )}
     </div>

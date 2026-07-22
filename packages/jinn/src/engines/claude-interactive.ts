@@ -10,6 +10,7 @@ import { resolveBin } from "../shared/resolve-bin.js";
 import { buildEngineChildEnv } from "../shared/child-env.js";
 import { PtyLifecycleManager, type PtyHandle } from "./pty-lifecycle.js";
 import { PtyStreamManager, createPtyHandle, setCapped } from "./pty-stream.js";
+import { isBgAgentRefusal, registerExit, BG_AGENT_MARKER, type ExitRecord } from "./bg-agent-guard.js";
 import type { PtyControlEvent, PtyViewEngine, PtyIdleSpawnOpts, PtySnapshotSubscription } from "./pty-view-engine.js";
 import type { HookRegistry, HookPayload } from "../gateway/hook-registry.js";
 import { SsePtyProxy, MAIN_AGENT_SENTINEL, type SseDataEvent, type UpstreamActivityInfo } from "./sse-pty-proxy.js";
@@ -509,6 +510,15 @@ export class InteractiveClaudeEngine implements InterruptibleEngine, PtyViewEngi
    *  apply only at spawn, so a mid-chat switch must cold-respawn rather than reuse
    *  the warm PTY (which would keep running the old model). */
   private spawnParams = new Map<string, { model?: string; effortLevel?: string; appendApplied?: boolean }>();
+  /** bg-agent resume guard: sessions Claude refused to `--resume` because it holds
+   *  them as a background agent (or that fast-exit-looped). ensureIdleSpawn skips
+   *  these until clearBgAgentBlock. Survives PTY release (that's what stops the loop). */
+  private bgAgentBlocked = new Set<string>();
+  /** Rolling tail of recent PTY output per session so the refusal marker is caught
+   *  even when it is split across two data chunks. */
+  private bgScanCarry = new Map<string, string>();
+  /** Consecutive fast-exit count per session (fast-exit backstop). */
+  private exitRecords = new Map<string, ExitRecord>();
   /** Sessions with a post-failure recovery listener armed (turn settled as an
    *  API error, but the CLI may still finish — a late Stop supersedes). */
   private lateRecovery = new Map<string, { timer: NodeJS.Timeout }>();
@@ -533,6 +543,10 @@ export class InteractiveClaudeEngine implements InterruptibleEngine, PtyViewEngi
     this.lifecycle.onRelease((id) => {
       this.lastOutputAt.delete(id);
       this.spawnParams.delete(id);
+      this.bgScanCarry.delete(id);
+      // NOTE: bgAgentBlocked/exitRecords intentionally survive release — the block
+      // must outlive the failed PTY (that's what stops the respawn loop); only
+      // clearBgAgentBlock releases it.
       // The PTY (and its SSE proxy) died — any in-flight counts are moot.
       this.clearBackground(id);
     });
@@ -905,7 +919,11 @@ export class InteractiveClaudeEngine implements InterruptibleEngine, PtyViewEngi
    *  `proxy` (the per-PTY SSE forward proxy) is torn down when this PTY exits. */
   private wireProcToStream(jinnSessionId: string, proc: pty.IPty, proxy?: SsePtyProxy): PtyHandle {
     const handle = createPtyHandle(proc);
+    const spawnedAt = Date.now();
     this.streams.attach(jinnSessionId, proc, () => this.lastOutputAt.set(jinnSessionId, Date.now()));
+    // Separate output listener (node-pty onData is multi-subscriber) that scans for
+    // Claude's background-agent resume refusal — kept off the snapshot data path.
+    proc.onData((d) => this.scanForBgAgent(jinnSessionId, d));
     proc.onExit((event) => {
       // Session-level cleanup MUST be identity-gated. In a kill->respawn race the
       // lifecycle/stream entries already point at the NEW PTY by the time THIS
@@ -915,6 +933,17 @@ export class InteractiveClaudeEngine implements InterruptibleEngine, PtyViewEngi
       // the session's CURRENT warm handle means the cleanup is ours to do.
       const isCurrent = this.lifecycle.getWarm(jinnSessionId) === handle;
       if (isCurrent) {
+        // Fast-exit backstop — timed by THIS PTY's own spawn (per-closure, never a
+        // session-keyed slot a newer PTY could clobber) and only for the CURRENT PTY,
+        // so a stale PTY exiting late in a kill->respawn race can't misclassify a
+        // healthy exit as fast.
+        const { record, tripped } = registerExit(this.exitRecords.get(jinnSessionId), Date.now() - spawnedAt);
+        this.exitRecords.set(jinnSessionId, record);
+        if (tripped && !this.bgAgentBlocked.has(jinnSessionId)) {
+          this.bgAgentBlocked.add(jinnSessionId);
+          this.streams.pushControl(jinnSessionId, { type: "bg_agent" });
+          logger.warn(`InteractiveClaudeEngine: session ${jinnSessionId} PTY fast-exited ${record.count}× — blocking respawn`);
+        }
         this.streams.onPtyExit(jinnSessionId, event ?? { exitCode: 0, signal: 0 });
         // Release the lifecycle entry so the dead handle isn't picked up by a future
         // run() as "warm" — that would inject into a corpse.
@@ -933,6 +962,29 @@ export class InteractiveClaudeEngine implements InterruptibleEngine, PtyViewEngi
       }
     });
     return handle;
+  }
+
+  /** Watch PTY output for Claude's background-agent resume refusal. On match, block
+   *  further respawns and notify viewers. Keeps a short carry so a marker split
+   *  across chunks is still caught. */
+  private scanForBgAgent(jinnSessionId: string, d: string): void {
+    if (this.bgAgentBlocked.has(jinnSessionId)) return;
+    const combined = (this.bgScanCarry.get(jinnSessionId) ?? "") + d;
+    if (isBgAgentRefusal(combined)) {
+      this.bgAgentBlocked.add(jinnSessionId);
+      this.bgScanCarry.delete(jinnSessionId);
+      this.streams.pushControl(jinnSessionId, { type: "bg_agent" });
+      logger.info(`InteractiveClaudeEngine: bg-agent resume refusal for session ${jinnSessionId} — blocking respawn`);
+      return;
+    }
+    this.bgScanCarry.set(jinnSessionId, combined.slice(-BG_AGENT_MARKER.length));
+  }
+
+  /** Clear a session's bg-agent block (Retry / after fork) so the next spawn runs. */
+  clearBgAgentBlock(jinnSessionId: string): void {
+    this.bgAgentBlocked.delete(jinnSessionId);
+    this.exitRecords.delete(jinnSessionId);
+    this.bgScanCarry.delete(jinnSessionId);
   }
 
   /** node-pty spawn of the genuine claude binary (no -p → cc_entrypoint=cli).
@@ -980,6 +1032,7 @@ export class InteractiveClaudeEngine implements InterruptibleEngine, PtyViewEngi
     if (this.lifecycle.getWarm(jinnSessionId)) return;
     if (this.active.has(jinnSessionId)) return; // a turn is starting/running — let run() spawn
     if (this.idleSpawning.has(jinnSessionId)) return; // an idle spawn is already in flight
+    if (this.bgAgentBlocked.has(jinnSessionId)) return; // resume refused — await Fork/Retry
     this.idleSpawning.add(jinnSessionId);
 
     const settingsPath = writeSessionSettings(CLAUDE_SETTINGS_DIR, jinnSessionId, {
