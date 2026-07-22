@@ -248,6 +248,7 @@ export const CliTerminal = forwardRef<CliTerminalHandle, { sessionId: string; on
             return;
           }
           if (msg?.type === "restoring") {
+            if (bgAgentRef.current) return; // keep the bg_agent panel; a stray restoring must not clobber it
             setTerminalState({ status: "restoring" });
             return;
           }
