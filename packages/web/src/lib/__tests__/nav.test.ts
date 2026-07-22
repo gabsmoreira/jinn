@@ -38,6 +38,7 @@ describe('OVERFLOW_ITEMS (the More screen)', () => {
       '/limits',
       '/logs',
       '/skills',
+      '/terminals',
       '/settings',
     ])
   })

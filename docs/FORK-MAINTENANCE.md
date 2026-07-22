@@ -21,7 +21,7 @@ upstream is then a clean rebase, not a merge war.
 | Feature | New files | Seam edits (upstream files) |
 |---|---|---|
 | bg-agent resume guard | `packages/jinn/src/engines/bg-agent-guard.ts` (+ tests) | `claude-interactive.ts`, `pty-ws.ts`, `pty-view-engine.ts`, `pty-stream.ts`, `cli-terminal.tsx`, `chat-pane.tsx` |
-| Terminals tab | `packages/web/src/routes/terminals/*` (+ tests) | `packages/web/src/lib/nav.ts` (+1 nav entry, +1 icon import), `packages/web/src/main.tsx` (+1 import, +1 route) |
+| Terminals tab | `packages/web/src/routes/terminals/*` (+ tests) | `packages/web/src/lib/nav.ts` (+1 nav entry, +1 icon import) & `nav.test.ts` (overflow-list assertion), `packages/web/src/main.tsx` (+1 import, +1 route) |
 
 The Terminals tab is the low-cost model; the bg-agent guard is the piece most likely to
 need touch-ups on a large upstream sync (deep engine seams).
@@ -34,6 +34,7 @@ git rebase upstream/main personal          # replay our commit stack onto new up
 
 # Resolve conflicts — expect them ONLY at the seams:
 #   packages/web/src/lib/nav.ts   → re-add the { href: "/terminals", ... } entry
+#     (and nav.test.ts → re-add "/terminals" to the overflow-list assertion)
 #   packages/web/src/main.tsx     → re-add the TerminalsPage import + route
 #   (bg-agent) engine/pty files   → re-apply the guard hooks if the PTY layer moved
 
