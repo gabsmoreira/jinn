@@ -21,7 +21,7 @@ upstream is then a clean rebase, not a merge war.
 | Feature | New files | Seam edits (upstream files) |
 |---|---|---|
 | bg-agent resume guard | `packages/jinn/src/engines/bg-agent-guard.ts` (+ tests) | `claude-interactive.ts`, `pty-ws.ts`, `pty-view-engine.ts`, `pty-stream.ts`, `cli-terminal.tsx`, `chat-pane.tsx` |
-| Terminals tab | `packages/web/src/routes/terminals/*` (+ tests) | `packages/web/src/lib/nav.ts` (+1 nav entry, +1 icon import) & `nav.test.ts` (overflow-list assertion), `packages/web/src/main.tsx` (+1 import, +1 route) |
+| Terminals tab | `packages/web/src/routes/terminals/*` (+ tests) | `nav.ts` (+1 nav entry, +1 icon import) & `nav.test.ts` (overflow-list assertion); `main.tsx` (+1 import, +1 route); interactive typing: `cli-terminal.tsx` (`interactive` prop → xterm stdin + `onData`→`input`) + `pty-ws.ts` (`input`→`writeRaw`) |
 | Disable upstream "upgrade lab" | — | `packages/web/src/routes/client-providers.tsx` (drop the `<InstanceMigrationGate/>` mount + import) |
 | Chrome PTY WebSocket fix | — | `packages/jinn/src/gateway/api.ts` (`isSameOriginBrowserRequest`: enforce Sec-Fetch only when present on a WS upgrade — Chrome omits them, else the CLI view 403s/reconnect-loops) + test in `gateway/__tests__/upgrade-identity-guard.test.ts`. **Upstream bug — PR candidate.** |
 

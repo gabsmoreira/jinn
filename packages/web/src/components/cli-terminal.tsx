@@ -124,7 +124,7 @@ type TerminalRecoveryState =
   | { status: "error"; message: string }
   | { status: "bg_agent" };
 
-export const CliTerminal = forwardRef<CliTerminalHandle, { sessionId: string; onForked?: (newSessionId: string) => void }>(function CliTerminal({ sessionId, onForked }, ref) {
+export const CliTerminal = forwardRef<CliTerminalHandle, { sessionId: string; onForked?: (newSessionId: string) => void; interactive?: boolean }>(function CliTerminal({ sessionId, onForked, interactive = false }, ref) {
   const containerRef = useRef<HTMLDivElement>(null);
   const wsRef = useRef<WebSocket | null>(null);
   // Lets the visibility effect (a separate effect) recover a dead socket without
@@ -193,15 +193,28 @@ export const CliTerminal = forwardRef<CliTerminalHandle, { sessionId: string; on
       theme: resolveXtermTheme(),
       scrollback: 5000,
       scrollOnUserInput: true,
-      // Display-only: input flows through the sibling ChatInput, never via
-      // xterm. Disabling stdin drops xterm's hidden helper textarea + its
+      // Default is display-only: input flows through the sibling ChatInput, never
+      // via xterm. Disabling stdin drops xterm's hidden helper textarea + its
       // pointer/touch handlers, which were absorbing one-finger swipes on iOS
-      // before they could reach .xterm-viewport's scrollable area.
-      disableStdin: true,
+      // before they could reach .xterm-viewport's scrollable area. `interactive`
+      // (the Terminals tab) flips this on so keystrokes flow straight to the PTY.
+      disableStdin: !interactive,
     });
     const fit = new FitAddon();
     term.loadAddon(fit);
     term.open(containerRef.current);
+    // Interactive mode (Terminals tab): pipe every keystroke xterm produces —
+    // regular chars, Enter (\r), arrows, Ctrl-C — straight to the PTY as raw input.
+    // The TUI handles echo, line-editing, and submit; the server writes it verbatim
+    // (writeRaw), so nothing auto-submits per keystroke.
+    if (interactive) {
+      term.onData((data) => {
+        const ws = wsRef.current;
+        if (ws && ws.readyState === WebSocket.OPEN) {
+          ws.send(JSON.stringify({ type: "input", data }));
+        }
+      });
+    }
     // NOTE: deliberately NOT calling fit.fit() synchronously here. On direct
     // CLI mount the container hasn't laid out yet (width 0), so a sync fit
     // would lock xterm to ~0 cols and the backend PTY would render claude's
@@ -482,7 +495,7 @@ export const CliTerminal = forwardRef<CliTerminalHandle, { sessionId: string; on
       wsRef.current = null;
       term.dispose();
     };
-  }, [sessionId]);
+  }, [sessionId, interactive]);
 
   // Page Visibility — emit on backgrounding/foregrounding so the backend can
   // start the 10-min grace timer (hidden) or trigger auto-resume respawn (visible).

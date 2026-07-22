@@ -83,8 +83,10 @@ class FakeEngine implements PtyViewEngine {
     };
   }
   setViewing(_sessionId: string, viewing: boolean): void { this.viewingCalls.push(viewing); }
-  writeStdin(): void {}
-  writeRaw(): void {}
+  writeStdinCalls: string[] = [];
+  writeRawCalls: string[] = [];
+  writeStdin(_sessionId: string, text: string): void { this.writeStdinCalls.push(text); }
+  writeRaw(_sessionId: string, data: string): void { this.writeRawCalls.push(data); }
   resizePty(): void {}
 }
 
@@ -112,6 +114,18 @@ describe("attachPtyWebSocket snapshot framing", () => {
     ]);
     expect(JSON.parse(ws.sent[1]!.toString()).snapshot.data).toBe("persisted screen");
     expect(ws.sent[3]).toEqual(Buffer.from("after-boundary"));
+  });
+
+  it("routes {type:'input'} to writeRaw (interactive typing), never the auto-submit writeStdin", async () => {
+    const ws = new FakeWebSocket();
+    const engine = new FakeEngine();
+    attachPtyWebSocket(ws as any, "session-1", engine);
+    await settle();
+
+    ws.receive({ type: "input", data: "ls -la\r" });
+
+    expect(engine.writeRawCalls).toEqual(["ls -la\r"]);
+    expect(engine.writeStdinCalls).toEqual([]);
   });
 
   it("paints a persisted restart snapshot first but stays restoring until the new PTY is ready", async () => {

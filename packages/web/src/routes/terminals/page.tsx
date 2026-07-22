@@ -369,7 +369,7 @@ export default function TerminalsPage() {
         {/* Focused terminal — watch + control keys (reuses upstream CliTerminal) */}
         <main className="flex min-w-0 flex-1 flex-col bg-[var(--bg)]">
           {selectedId ? (
-            <CliTerminal key={selectedId} sessionId={selectedId} onForked={setSelectedId} />
+            <CliTerminal key={selectedId} sessionId={selectedId} interactive onForked={setSelectedId} />
           ) : (
             <div className="flex flex-1 items-center justify-center text-[length:var(--text-footnote)] text-[var(--text-quaternary)]">
               Select an agent terminal

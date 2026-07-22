@@ -164,6 +164,11 @@ export function attachPtyWebSocket(
       engine.writeStdin(sessionId, message.data);
     } else if (message?.type === "key" && typeof message.data === "string") {
       if (RAW_KEY_INPUTS.has(message.data)) engine.writeRaw(sessionId, message.data);
+    } else if (message?.type === "input" && typeof message.data === "string") {
+      // Interactive typing (Terminals tab): raw operator keystrokes from xterm's
+      // onData go straight to the PTY. Distinct from `stdin` (bracketed-paste +
+      // auto-submit, for whole-message injection) — never auto-submits per keystroke.
+      engine.writeRaw(sessionId, message.data);
     } else if (message?.type === "resize" && validGeometry(message.cols, message.rows)) {
       const cols = Math.floor(message.cols);
       const rows = Math.floor(message.rows);
