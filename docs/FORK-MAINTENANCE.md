@@ -21,7 +21,7 @@ upstream is then a clean rebase, not a merge war.
 | Feature | New files | Seam edits (upstream files) |
 |---|---|---|
 | bg-agent resume guard | `packages/jinn/src/engines/bg-agent-guard.ts` (+ tests) | `claude-interactive.ts`, `pty-ws.ts`, `pty-view-engine.ts`, `pty-stream.ts`, `cli-terminal.tsx`, `chat-pane.tsx` |
-| Terminals tab | `packages/web/src/routes/terminals/*` (+ tests) | `packages/web/src/lib/nav.ts` (+1 nav entry), `packages/web/src/main.tsx` (+1 import, +1 route) |
+| Terminals tab | `packages/web/src/routes/terminals/*` (+ tests) | `packages/web/src/lib/nav.ts` (+1 nav entry, +1 icon import), `packages/web/src/main.tsx` (+1 import, +1 route) |
 
 The Terminals tab is the low-cost model; the bg-agent guard is the piece most likely to
 need touch-ups on a large upstream sync (deep engine seams).

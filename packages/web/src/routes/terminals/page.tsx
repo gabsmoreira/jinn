@@ -275,7 +275,9 @@ export default function TerminalsPage() {
   const handleConfirmDelete = () => {
     if (!deleteTarget) return
     const id = deleteTarget.id
-    deleteSession.mutate(id)
+    deleteSession.mutate(id, {
+      onError: (err) => window.alert(`Delete failed: ${err instanceof Error ? err.message : String(err)}`),
+    })
     if (selectedId === id) setSelectedId(null)
     setDeleteTarget(null)
   }
