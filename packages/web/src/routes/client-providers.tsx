@@ -9,7 +9,10 @@ import { BreadcrumbProvider } from '@/context/breadcrumb-context'
 import { EmojiFavicon } from '@/components/emoji-favicon'
 import { GatewayProvider } from '@/hooks/use-gateway'
 import { AuthGate, AuthProvider } from "@/routes/auth-provider"
-import { InstanceMigrationGate } from "@/components/migration/instance-migration-gate"
+// [fork] InstanceMigrationGate (upstream "upgrade lab") intentionally NOT imported — the
+// fork upgrades via `git rebase upstream/main personal`, not the npm-upgrade path the gate
+// serves, and upstream 0.27.0 ships no matching migration bundle so it 500s. See
+// docs/FORK-MAINTENANCE.md. Re-evaluate on each upstream sync.
 
 function QueryInvalidationBridge() {
   useQueryInvalidation()
@@ -25,7 +28,7 @@ export function ClientProviders({ children }: { children: ReactNode }) {
             <AuthGate>
               <SettingsProvider>
                 <GatewayProvider>
-                  <InstanceMigrationGate />
+                  {/* [fork] <InstanceMigrationGate/> removed — see import note above */}
                   {children}
                   <DocumentTitle />
                   <EmojiFavicon />
