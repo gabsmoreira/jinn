@@ -136,6 +136,10 @@ export const CliTerminal = forwardRef<CliTerminalHandle, { sessionId: string; on
   // Direct api call (not the react-query hook) so this low-level component stays free
   // of a QueryClientProvider dependency — keeps it renderable/testable in isolation.
   const [forking, setForking] = useState(false);
+  // bg_agent is "sticky": once shown, the PTY's trailing exited/error events (the same
+  // death that triggered it) must not clobber the panel. Cleared by reset/ready (a
+  // fresh spawn) or Retry. A ref because onWsMessage is a long-lived closure.
+  const bgAgentRef = useRef(false);
 
   const restartTerminal = () => {
     const ws = wsRef.current;
@@ -149,6 +153,7 @@ export const CliTerminal = forwardRef<CliTerminalHandle, { sessionId: string; on
   // engine id isn't blocked) and navigates via onForked when provided.
   const retryBgAgent = () => {
     const ws = wsRef.current;
+    bgAgentRef.current = false;
     setTerminalState({ status: "restoring" });
     if (ws && ws.readyState === WebSocket.OPEN) ws.send(JSON.stringify({ type: "retry" }));
     window.dispatchEvent(new Event("resize"));
@@ -224,6 +229,7 @@ export const CliTerminal = forwardRef<CliTerminalHandle, { sessionId: string; on
             decoder.decode();
             decoder = new TextDecoder("utf-8");
             term.reset();
+            bgAgentRef.current = false;
             setTerminalState({ status: "restoring" });
             return;
           }
@@ -237,6 +243,7 @@ export const CliTerminal = forwardRef<CliTerminalHandle, { sessionId: string; on
             return;
           }
           if (msg?.type === "ready") {
+            bgAgentRef.current = false;
             setTerminalState({ status: "ready" });
             return;
           }
@@ -245,15 +252,18 @@ export const CliTerminal = forwardRef<CliTerminalHandle, { sessionId: string; on
             return;
           }
           if (msg?.type === "error" && typeof msg.message === "string") {
+            if (bgAgentRef.current) return; // keep the bg_agent panel; ignore death-throe errors
             setTerminalState({ status: "error", message: msg.message });
             return;
           }
           if (msg?.type === "exited") {
+            if (bgAgentRef.current) return; // the exit that triggered bg_agent — keep the panel
             const code = typeof msg.exitCode === "number" ? msg.exitCode : "unknown";
             setTerminalState({ status: "error", message: `Terminal exited with code ${code}.` });
             return;
           }
           if (msg?.type === "bg_agent") {
+            bgAgentRef.current = true;
             setTerminalState({ status: "bg_agent" });
             return;
           }

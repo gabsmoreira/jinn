@@ -61,4 +61,7 @@ export interface PtyViewEngine {
    *  (after Fork/Retry, or after the user cleared the agent in `claude agents`).
    *  Optional — only the claude engine implements it. */
   clearBgAgentBlock?(sessionId: string): void;
+  /** True while the session's `--resume` is blocked as a background agent — lets the
+   *  WS re-surface the Fork/Retry panel on a fresh connection. Optional. */
+  isBgAgentBlocked?(sessionId: string): boolean;
 }

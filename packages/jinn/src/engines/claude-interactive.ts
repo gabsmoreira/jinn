@@ -938,7 +938,10 @@ export class InteractiveClaudeEngine implements InterruptibleEngine, PtyViewEngi
         // so a stale PTY exiting late in a kill->respawn race can't misclassify a
         // healthy exit as fast.
         const { record, tripped } = registerExit(this.exitRecords.get(jinnSessionId), Date.now() - spawnedAt);
-        this.exitRecords.set(jinnSessionId, record);
+        // Delete on a reset streak (healthy exit) so this map doesn't accumulate an
+        // entry per session for the life of the daemon; keep it only while counting.
+        if (record.count === 0) this.exitRecords.delete(jinnSessionId);
+        else this.exitRecords.set(jinnSessionId, record);
         if (tripped && !this.bgAgentBlocked.has(jinnSessionId)) {
           this.bgAgentBlocked.add(jinnSessionId);
           this.streams.pushControl(jinnSessionId, { type: "bg_agent" });
@@ -985,6 +988,12 @@ export class InteractiveClaudeEngine implements InterruptibleEngine, PtyViewEngi
     this.bgAgentBlocked.delete(jinnSessionId);
     this.exitRecords.delete(jinnSessionId);
     this.bgScanCarry.delete(jinnSessionId);
+  }
+
+  /** True while a session's `--resume` is blocked as a background agent. Lets the WS
+   *  re-surface the Fork/Retry panel on a fresh connection (the block outlives the PTY). */
+  isBgAgentBlocked(jinnSessionId: string): boolean {
+    return this.bgAgentBlocked.has(jinnSessionId);
   }
 
   /** node-pty spawn of the genuine claude binary (no -p → cc_entrypoint=cli).

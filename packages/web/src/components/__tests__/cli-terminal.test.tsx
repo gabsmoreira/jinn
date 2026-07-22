@@ -177,4 +177,17 @@ describe("CliTerminal recovery protocol", () => {
     expect(screen.getByText(/Terminal exited with code 1/i)).toBeTruthy();
     expect(screen.getByRole("button", { name: "Restart terminal" })).toBeTruthy();
   });
+
+  it("keeps the bg_agent Fork/Retry panel through the trailing exited event", () => {
+    render(<CliTerminal sessionId="session-1" />);
+    act(() => live()[0]!.open());
+    act(() => live()[0]!.control({ type: "bg_agent" }));
+    expect(screen.getByText(/background agent/i)).toBeTruthy();
+    expect(screen.getByRole("button", { name: /Retry/i })).toBeTruthy();
+    expect(screen.getByRole("button", { name: /Fork a copy/i })).toBeTruthy();
+    // The same PTY death emits `exited` right after — it must NOT clobber the panel.
+    act(() => live()[0]!.control({ type: "exited", exitCode: 1, signal: 0 }));
+    expect(screen.getByText(/background agent/i)).toBeTruthy();
+    expect(screen.queryByText(/Terminal exited/i)).toBeNull();
+  });
 });

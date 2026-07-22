@@ -88,6 +88,9 @@ export function attachPtyWebSocket(
       terminalReady = false;
       sendControl({ type: "restoring" });
     }
+    // If the session is already blocked as a background agent, re-surface the panel
+    // on this fresh connection (the block outlives the PTY, so nothing else re-emits it).
+    if (engine.isBgAgentBlocked?.(sessionId)) sendControl({ type: "bg_agent" });
     // Events after the captured boundary can only flow after all framing above.
     subscription.start();
   }).catch((error) => {
@@ -165,6 +168,13 @@ export function attachPtyWebSocket(
       const cols = Math.floor(message.cols);
       const rows = Math.floor(message.rows);
       lastGeometry = { cols, rows };
+      // Blocked as a background agent — don't attempt a spawn (it would no-op and then
+      // the resume deadline would fire a spurious error); re-surface the panel instead.
+      if (engine.isBgAgentBlocked?.(sessionId)) {
+        clearResumeDeadline();
+        sendControl({ type: "bg_agent" });
+        return;
+      }
       const hadWarmPty = engine.hasWarmPty(sessionId);
       if (!spawnIfNeeded(cols, rows)) return;
       try {

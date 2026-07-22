@@ -550,7 +550,7 @@ export function ChatPane({
         // Reserve flex space during lazy-chunk load so the ChatInput below stays
         // pinned to the bottom instead of flashing to the top for a frame.
         <Suspense fallback={<div style={{ flex: 1, minHeight: 0, background: 'var(--bg)' }} />}>
-          <CliTerminal ref={cliTerminalRef} sessionId={sessionId} />
+          <CliTerminal ref={cliTerminalRef} sessionId={sessionId} onForked={(newId) => onSessionCreated?.(newId)} />
         </Suspense>
       ) : !showSessionHydration && (sessionId || messages.length > 0) ? (
         <ChatMessages
