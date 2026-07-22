@@ -134,4 +134,12 @@ describe('groupTerminalsByAgent', () => {
     ])
     expect(out[0].tasks.map((x) => x.id)).toEqual(['a', 'b'])
   })
+
+  it('orders groups by activity using createdAt when lastActivity is absent', () => {
+    const out = groupTerminalsByAgent([
+      { id: 'a', engine: 'claude', employee: 'fresh', status: 'idle', createdAt: '2026-07-20' },
+      { id: 'b', engine: 'claude', employee: 'stale', status: 'idle', lastActivity: '2020-01-01' },
+    ])
+    expect(out.map((g) => g.agent)).toEqual(['fresh', 'stale'])
+  })
 })

@@ -12,13 +12,14 @@ export interface TerminalRailSession {
   createdAt?: string
 }
 
+const activity = (s: TerminalRailSession) => s.lastActivity || s.createdAt || ''
+
 /**
  * Sessions eligible for the Terminals rail: CLI-capable, non-archived engines,
  * ordered running-first (so what's live floats up) then by most-recent activity.
  * Pure — unit-tested.
  */
 export function selectTerminalSessions<T extends TerminalRailSession>(sessions: T[]): T[] {
-  const activity = (s: T) => s.lastActivity || s.createdAt || ''
   return sessions
     .filter((s) => !!s.engine && CLI_CAPABLE_ENGINES.has(s.engine) && !s.archivedAt)
     .slice()
@@ -72,10 +73,13 @@ export function groupTerminalsByAgent<
       hasRunning: tasks.some((r) => r.status === 'running'),
     })
   }
-  const activity = (g: AgentTerminalGroup<T>) => g.visibleTasks[0]?.lastActivity || ''
+  const groupActivity = (g: AgentTerminalGroup<T>) => {
+    const top = g.visibleTasks[0]
+    return top ? activity(top) : ''
+  }
   groups.sort((a, b) => {
     if (a.hasRunning !== b.hasRunning) return a.hasRunning ? -1 : 1
-    return activity(b).localeCompare(activity(a))
+    return groupActivity(b).localeCompare(groupActivity(a))
   })
   return groups
 }
